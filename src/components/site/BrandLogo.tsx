@@ -73,25 +73,21 @@ export function BrandLogo({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <Link to="/" className="shrink-0" aria-label="Study DZ">
+      <Link
+        to="/"
+        preload="intent"
+        onClick={registerClick}
+        className="flex shrink-0 items-center select-none"
+        aria-label="Insti DZ"
+      >
         <img
-          src={logo.url}
-          alt="شعار منصة Study DZ"
-          className={`${box} rounded-xl bg-background object-contain`}
-          width={44}
+          src="/insti-dz-logo.png"
+          alt="Insti DZ"
+          className="h-11 w-auto object-contain"
+          width={53}
           height={44}
         />
       </Link>
-      <span className="min-w-0">
-        <button
-          type="button"
-          onClick={registerClick}
-          onDoubleClick={(e) => e.preventDefault()}
-          className="block max-w-full select-none truncate font-display text-lg font-extrabold leading-tight"
-        >
-          Study DZ
-        </button>
-      </span>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-sm">

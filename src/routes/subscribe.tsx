@@ -1,13 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { AlertTriangle, Upload, CheckCircle2, Clock, XCircle, PauseCircle, Loader2 } from "lucide-react";
+import { Upload, CheckCircle2, Copy, Check, X, FileText, Loader2, Clock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SiteHeader } from "@/components/site/SiteHeader";
+import { SiteFooter } from "@/components/site/SiteFooter";
 import { submitPaymentProof, getInstitutionPayments } from "@/lib/payment.functions";
 import { uploadMedia } from "@/lib/storage.functions";
 import { useAccount } from "@/lib/account";
@@ -15,13 +13,13 @@ import { useAccount } from "@/lib/account";
 export const Route = createFileRoute("/subscribe")({
   head: () => ({
     meta: [
-      { title: "الاشتراك السنوي والدفع عبر CCP | Study DZ" },
+      { title: "الاشتراك السنوي والدفع عبر CCP | Insti DZ" },
       {
         name: "description",
         content:
-          "ادفع اشتراك Study DZ السنوي 9,000 دج عبر الحساب البريدي CCP، ثم ارفع وصل الدفع ليتم التحقق وتفعيل حساب مؤسستك خلال 24 ساعة.",
+          "ادفع اشتراك Insti DZ السنوي 9,000 دج عبر الحساب البريدي CCP، ثم ارفع وصل الدفع ليتم التحقق وتفعيل حساب مؤسستك خلال 24 ساعة.",
       },
-      { property: "og:title", content: "الاشتراك السنوي والدفع عبر CCP | Study DZ" },
+      { property: "og:title", content: "الاشتراك السنوي والدفع عبر CCP | Insti DZ" },
       {
         property: "og:description",
         content: "خطوات الاشتراك: الدفع 9,000 دج عبر CCP، رفع الوصل، ثم التفعيل بعد المراجعة.",
@@ -31,29 +29,31 @@ export const Route = createFileRoute("/subscribe")({
   component: Subscribe,
 });
 
-const flow = [
-  "🏫 تسجيل المؤسسة",
-  "📄 إنشاء طلب الاشتراك السنوي",
-  "💰 السعر الثابت: 9,000 دج",
-  "💳 طريقة الدفع: CCP",
-  "📤 دفع 9,000 دج",
-  "📸 رفع وصل الدفع",
-  "🟡 طلب قيد المراجعة",
-  "👨‍💼 مدير المنصة يتحقق من الوصل",
+const steps = [
+  { n: 1, text: "تسجيل المؤسسة" },
+  { n: 2, text: "إنشاء طلب الاشتراك السنوي" },
+  { n: 3, text: "الدفع عبر CCP (9,000 دج)" },
+  { n: 4, text: "رفع وصل الدفع" },
+  { n: 5, text: "طلب قيد المراجعة" },
+  { n: 6, text: "مدير المنصة يتحقق من الوصل" },
 ];
 
 function Subscribe() {
   const account = useAccount();
-  const submitProof = useServerFn(submitPaymentProof);
-  const fetchPayments = useServerFn(getInstitutionPayments);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [copied, setCopied] = useState(false);
+  const [institutionName, setInstitutionName] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
-  const [reference, setReference] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [sent, setSent] = useState(false);
 
+  const submitProof = useServerFn(submitPaymentProof);
+  const uploadFn = useServerFn(uploadMedia);
+  const fetchPayments = useServerFn(getInstitutionPayments);
+
   const institutionId = account.data?.profile?.institution_id as string | undefined;
-  const [instName, setInstName] = useState("");
 
   const existingPayments = useQuery({
     queryKey: ["subscribe", "payments", institutionId],
@@ -65,42 +65,79 @@ function Subscribe() {
 
   const pendingPayment = (existingPayments.data ?? []).find((p: any) => p.status === "pending");
 
+  function copyCcp() {
+    navigator.clipboard.writeText("0042451103");
+    setCopied(true);
+    toast.success("تم نسخ رقم الحساب البريدي CCP");
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  function handleFileSelected(selectedFile: File) {
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      toast.error("حجم الملف يتجاوز الحد الأقصى المسموح (5 ميغابايت)");
+      return;
+    }
+    const validTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    if (!validTypes.includes(selectedFile.type)) {
+      toast.error("صيغة الملف غير مدعومة. يرجى اختيار صورة JPG أو PNG أو WEBP أو ملف PDF");
+      return;
+    }
+    setFile(selectedFile);
+    if (selectedFile.type.startsWith("image/")) {
+      const url = URL.createObjectURL(selectedFile);
+      setFilePreview(url);
+    } else {
+      setFilePreview(null);
+    }
+  }
+
+  function removeFile() {
+    setFile(null);
+    if (filePreview) {
+      URL.revokeObjectURL(filePreview);
+      setFilePreview(null);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!institutionId) throw new Error("يجب تسجيل الدخول كمدير مؤسسة أولاً.");
-      if (!file) throw new Error("يرجى اختيار ملف وصل الدفع.");
-
-      setBusy(true);
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "pdf";
-      const path = `${institutionId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "")}`;
-      try {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            resolve(result.includes(",") ? result.split(",")[1] : result);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        await uploadMedia({
-          data: {
-            bucket: "payment-proofs",
-            path,
-            fileBase64: base64,
-            contentType: file.type || "application/pdf",
-          },
-        });
-      } catch (backendErr) {
-        console.warn("[Subscribe Payment Upload] Backend storage upload failed:", backendErr);
+      if (!institutionId) {
+        throw new Error("يجب تسجيل الدخول كمدير مؤسسة أولاً لرفع الوصل وتفعيل حساب المؤسسة.");
       }
+      if (!file) throw new Error("يرجى اختيار ملف وصل الدفع.");
+      if (!institutionName.trim()) throw new Error("يرجى إدخال اسم المؤسسة.");
+
+      const path = `${institutionId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const res = reader.result as string;
+          const commaIdx = res.indexOf(",");
+          resolve(commaIdx >= 0 ? res.slice(commaIdx + 1) : res);
+        };
+        reader.onerror = reject;
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      await uploadFn({
+        data: {
+          bucket: "payment-proofs",
+          path,
+          fileBase64: base64Data,
+          contentType: file.type || "application/pdf",
+        },
+      });
 
       return submitProof({
         data: {
-          paidAt,
+          paidAt: new Date().toISOString().slice(0, 10),
           amount: 9000,
-          reference: reference.trim() || null,
-          institutionName: instName.trim(),
+          reference: null,
+          institutionName: institutionName.trim(),
           proofPath: path,
         },
       });
@@ -111,217 +148,358 @@ function Subscribe() {
       existingPayments.refetch();
     },
     onError: (e: Error) => toast.error(e.message),
-    onSettled: () => setBusy(false),
   });
 
-  const showForm = !pendingPayment && !sent;
-
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[#F6F4EF] text-[#14130F] font-sans antialiased" dir="rtl">
       <SiteHeader />
-      <main className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
-        <h1 className="text-4xl">الاشتراك السنوي والدفع</h1>
-        <p className="mt-3 text-muted-foreground">
-          سعر الاشتراك السنوي ثابت: <strong>9,000 دج</strong> لكل مؤسسة، والدفع يتم حاليًا عبر
-          الحساب البريدي CCP مع تحقق يدوي من إدارة المنصة.
-        </p>
 
-        {!institutionId && (
-          <div className="mt-6 rounded-xl border border-warning/50 bg-warning/15 p-4 text-sm">
-            يجب تسجيل الدخول كمدير مؤسسة لرفع وصل الدفع.{" "}
-            <Link to="/auth" className="font-semibold underline">تسجيل الدخول</Link>{" "}
-            أو{" "}
-            <Link to="/register" className="font-semibold underline">تسجيل مؤسسة جديدة</Link>.
-          </div>
-        )}
-
-        <div className="card-soft mt-8 p-6">
-          <h2 className="text-xl">مسار الاشتراك</h2>
-          <ol className="mt-4 space-y-2 text-sm leading-7 text-muted-foreground">
-            {flow.map((s, i) => (
-              <li key={s}>
-                <span className="font-semibold text-foreground">{i + 1}.</span> {s}
-              </li>
-            ))}
-          </ol>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <StatusChip icon={CheckCircle2} label="🟢 قبول" tone="success" />
-            <StatusChip icon={XCircle} label="🔴 رفض" tone="destructive" />
-            <StatusChip icon={PauseCircle} label="🟠 موقوف" tone="warning" />
-          </div>
-        </div>
-
-        <div className="card-soft mt-8 overflow-hidden">
-          <div className="surface-hero border-b border-border p-6">
-            <h2 className="text-xl text-foreground">معلومات الدفع</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              المبلغ المطلوب: 9,000.00 دج — دفع سنوي
-            </p>
-          </div>
-
-          <dl className="grid gap-4 p-6 sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-muted-foreground">الاسم واللقب المستفيد</dt>
-              <dd className="mt-1 font-display text-lg font-bold" dir="ltr">
-                ishak diaf
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">رقم الحساب البريدي N° CCP</dt>
-              <dd className="mt-1 font-display text-lg font-bold" dir="ltr">
-                0042451103
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">المفتاح Clé</dt>
-              <dd className="mt-1 font-display text-lg font-bold" dir="ltr">
-                65
-              </dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="mt-8 flex gap-3 rounded-2xl border border-warning/50 bg-warning/15 p-5">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
-          <div className="text-sm leading-7">
-            <p className="font-bold">تنبيه هام للمديرين</p>
-            <p className="text-muted-foreground">
-              بعد إتمام عملية الدفع (Versement) لدى مكتب البريد، يرجى كتابة اسم مؤسستكم على الوصل،
-              ثم التقاط صورة واضحة له ورفعها في المكان المخصص أسفله لتأكيد المعاملة وتفعيل حسابكم في
-              غضون 24 ساعة.
-            </p>
-          </div>
-        </div>
-
-        {pendingPayment && (
-          <div className="card-soft mt-8 p-8 text-center">
-            <Clock className="mx-auto h-12 w-12 text-warning" />
-            <h2 className="mt-4 text-2xl">🟡 طلبك قيد المراجعة</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
-              تم استلام وصل الدفع بمبلغ {Number(pendingPayment.amount).toLocaleString("en-US")} دج
-              بتاريخ {pendingPayment.paid_at}. سيقوم مدير المنصة بالتحقق يدويًا من الوصل، وعند القبول
-              يُفعّل حساب مؤسستكم مباشرة لمدة سنة كاملة.
-            </p>
-          </div>
-        )}
-
-        {sent && !pendingPayment && (
-          <div className="card-soft mt-8 p-8 text-center">
-            <CheckCircle2 className="mx-auto h-12 w-12 text-success" />
-            <h2 className="mt-4 text-2xl">تم إرسال وصل الدفع</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
-              وصل الدفع قيد المراجعة الآن. سيصلك إشعار داخل المنصة فور اتخاذ القرار.
-            </p>
-            <Button asChild variant="outline" className="mt-6">
-              <Link to="/institution">العودة إلى لوحة المؤسسة</Link>
-            </Button>
-          </div>
-        )}
-
-        {showForm && institutionId && (
-          <form
-            className="card-soft mt-8 space-y-5 p-6"
-            onSubmit={(e) => {
-              e.preventDefault();
-              mutation.mutate();
-            }}
-          >
-            <h2 className="text-xl">📸 رفع وصل الدفع</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="pay-inst">اسم المؤسسة</Label>
-                <Input
-                  id="pay-inst"
-                  required
-                  maxLength={200}
-                  placeholder="اكتب اسم المؤسسة كما هو مكتوب على الوصل"
-                  value={instName}
-                  onChange={(e) => setInstName(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="pay-date">تاريخ الدفع</Label>
-                <Input
-                  id="pay-date"
-                  type="date"
-                  required
-                  value={paidAt}
-                  onChange={(e) => setPaidAt(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="pay-amount">المبلغ المدفوع (دج)</Label>
-                <Input id="pay-amount" type="number" defaultValue={9000} readOnly />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="pay-ref">مرجع الدفع (اختياري)</Label>
-                <Input
-                  id="pay-ref"
-                  dir="ltr"
-                  placeholder="رقم الوصل أو المرجع"
-                  value={reference}
-                  onChange={(e) => setReference(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="pay-proof">إثبات الدفع (صورة أو PDF)</Label>
-              <label
-                htmlFor="pay-proof"
-                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-secondary/30 px-4 py-10 text-center text-sm text-muted-foreground hover:border-primary"
-              >
-                <Upload className="h-6 w-6" />
-                <span>{file?.name ?? "اضغط لاختيار صورة الوصل أو ملف PDF"}</span>
-              </label>
-              <Input
-                id="pay-proof"
-                type="file"
-                accept="image/*,application/pdf"
-                required
-                className="sr-only"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
-
-            <Button type="submit" size="lg" className="w-full" disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {busy ? "جارٍ الإرسال…" : "إرسال إثبات الدفع"}
-            </Button>
-          </form>
-        )}
-
-        <div className="card-soft mt-8 p-6">
-          <h2 className="text-xl">🔁 نظام التجديد</h2>
-          <p className="mt-3 text-sm leading-7 text-muted-foreground">
-            الاشتراك ← تجديد الاشتراك ← اختيار الباقة ← الدفع عبر CCP ← رفع إثبات الدفع ← مراجعة
-            الإدارة ← تجديد سنة جديدة. ولا تُحذف بيانات المؤسسة في أي حالة.
+      <main className="mx-auto max-w-[760px] px-4 py-10 sm:px-6 md:py-14 flex flex-col gap-6">
+        {/* Hero */}
+        <div className="flex flex-col items-center text-center gap-2.5">
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#14130F]">
+            سعر بسيط وواضح
+          </h1>
+          <p className="max-w-[560px] text-base sm:text-lg text-[#4A4943]">
+            باقة واحدة تشمل كل شيء. بدون رسوم خفية وبدون حدود على عدد المستخدمين.
           </p>
         </div>
-      </main>
-      <SiteFooter />
-    </div>
-  );
-}
 
-function StatusChip({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: typeof CheckCircle2;
-  label: string;
-  tone: "success" | "destructive" | "warning";
-}) {
-  const tones = {
-    success: "border-success/40 bg-success/10 text-success",
-    destructive: "border-destructive/40 bg-destructive/10 text-destructive",
-    warning: "border-warning/50 bg-warning/15 text-warning-foreground",
-  } as const;
-  return (
-    <div className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${tones[tone]}`}>
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="font-semibold">{label}</span>
+        {/* Pricing Card */}
+        <section
+          id="pricing"
+          className="overflow-hidden rounded-[28px] border border-[#E3DFD5] bg-white shadow-[0_24px_48px_-28px_rgba(20,19,15,0.18)]"
+        >
+          <div className="flex flex-col items-center gap-1.5 bg-[#E4F1EB] px-6 py-7 sm:py-8 text-center">
+            <span className="rounded-full bg-[#0B6B4B] px-4 py-1 text-xs font-semibold text-white">
+              الباقة الأساسية
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-5xl sm:text-6xl font-extrabold tracking-tight text-[#14130F]">
+                9,000
+              </span>
+              <span className="text-2xl font-bold text-[#14130F]">دج</span>
+            </div>
+            <span className="text-sm sm:text-base font-medium text-[#3C3B36]">
+              اشتراك سنوي لكل مؤسسة
+            </span>
+          </div>
+
+          <div className="p-5 sm:p-6 flex flex-wrap gap-3">
+            <Link
+              to="/register"
+              className="flex-1 min-w-[220px] h-[52px] rounded-xl bg-[#0B6B4B] px-6 text-sm sm:text-base font-semibold text-white flex items-center justify-center transition hover:bg-[#09573c]"
+            >
+              تسجيل مؤسسة والاشتراك
+            </Link>
+            <a
+              href="#payment"
+              className="flex-1 min-w-[220px] h-[52px] rounded-xl border border-[#CFCABD] bg-white px-6 text-sm sm:text-base font-semibold text-[#14130F] flex items-center justify-center transition hover:bg-[#F6F4EF]"
+            >
+              طريقة الدفع ورفع الوصل
+            </a>
+          </div>
+        </section>
+
+        {/* Expiry Card */}
+        <section className="rounded-[20px] border border-[#E3DFD5] bg-white p-5 sm:p-7 flex flex-col gap-3 shadow-sm">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#14130F]">
+            ماذا يحدث عند انتهاء الاشتراك؟
+          </h2>
+          <ul className="space-y-2.5 text-sm sm:text-base leading-7 text-[#3C3B36]">
+            <li className="flex items-start gap-2">
+              <span className="text-[#0B6B4B] font-bold">•</span>
+              <span>تنبيه قبل 30 يومًا من انتهاء الاشتراك.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#0B6B4B] font-bold">•</span>
+              <span>تنبيه ثانٍ قبل 7 أيام.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#0B6B4B] font-bold">•</span>
+              <span>
+                عند الانتهاء يتم إيقاف الحساب مؤقتًا فقط،{" "}
+                <strong className="text-[#14130F]">ولا تُحذف أي بيانات.</strong>
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#0B6B4B] font-bold">•</span>
+              <span>بمجرد التجديد تعود المؤسسة لاستعمال المنصة بكامل بياناتها.</span>
+            </li>
+          </ul>
+        </section>
+
+        {/* Payment Heading */}
+        <div id="payment" className="flex flex-col gap-1.5 pt-2 scroll-mt-20">
+          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#14130F]">
+            الاشتراك السنوي والدفع
+          </h2>
+          <p className="text-base sm:text-lg text-[#4A4943]">
+            الدفع يتم حاليًا عبر الحساب البريدي CCP مع تحقق يدوي من إدارة المنصة.
+          </p>
+        </div>
+
+        {/* Login Notice Banner */}
+        {!institutionId && (
+          <div className="rounded-[18px] bg-[#E4F1EB] px-5 py-4 text-sm sm:text-base font-medium text-[#0B6B4B] leading-6">
+            يجب تسجيل الدخول كمدير مؤسسة لرفع وصل الدفع:{" "}
+            <Link to="/auth" preload="intent" className="font-bold underline hover:text-[#09573c]">
+              تسجيل الدخول
+            </Link>{" "}
+            أو{" "}
+            <Link to="/register" preload="intent" className="font-bold underline hover:text-[#09573c]">
+              تسجيل مؤسسة جديدة
+            </Link>
+          </div>
+        )}
+
+        {/* Subscription Flow Card */}
+        <section className="rounded-[20px] border border-[#E3DFD5] bg-white p-5 sm:p-7 flex flex-col gap-4 shadow-sm">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#14130F]">مسار الاشتراك</h2>
+          <div className="flex flex-col gap-2.5">
+            {steps.map((s) => (
+              <div key={s.n} className="flex items-center gap-3.5 text-sm sm:text-base text-[#14130F]">
+                <b className="h-7 w-7 rounded-full bg-[#14130F] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                  {s.n}
+                </b>
+                <span>{s.text}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="h-px bg-[#E3DFD5] my-1"></div>
+
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-[120px] h-11 rounded-xl border border-[#CFCABD] bg-[#F6F4EF] flex items-center justify-center text-sm font-semibold text-[#14130F]">
+              قبول
+            </div>
+            <div className="flex-1 min-w-[120px] h-11 rounded-xl border border-[#CFCABD] bg-[#F6F4EF] flex items-center justify-center text-sm font-semibold text-[#14130F]">
+              رفض
+            </div>
+            <div className="flex-1 min-w-[120px] h-11 rounded-xl border border-[#CFCABD] bg-[#F6F4EF] flex items-center justify-center text-sm font-semibold text-[#14130F]">
+              موقوف
+            </div>
+          </div>
+        </section>
+
+        {/* Payment Info Card */}
+        <section className="rounded-[20px] border border-[#E3DFD5] bg-white p-5 sm:p-7 flex flex-col gap-4 shadow-sm">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#14130F]">معلومات الدفع</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-start">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-[#5B5A55]">الاسم واللقب المستفيد</span>
+              <strong className="text-lg font-bold text-[#14130F]">ishak diaf</strong>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-[#5B5A55]">N° CCP رقم الحساب البريدي</span>
+              <strong className="font-mono text-xl font-bold text-[#14130F]" dir="ltr">
+                0042451103
+              </strong>
+              <button
+                type="button"
+                onClick={copyCcp}
+                className="w-fit rounded-lg border border-[#CFCABD] bg-white px-3 py-1 text-xs font-medium text-[#14130F] flex items-center gap-1.5 transition hover:bg-[#F6F4EF]"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-[#0B6B4B]" />
+                    <span>تم النسخ</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>نسخ الرقم</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-[#5B5A55]">Clé المفتاح</span>
+              <strong className="font-mono text-xl font-bold text-[#14130F]">65</strong>
+            </div>
+          </div>
+        </section>
+
+        {/* Notice Card */}
+        <section className="rounded-[20px] border border-[#E3DFD5] border-r-4 border-r-[#0B6B4B] bg-white p-5 sm:p-7 flex flex-col gap-1.5 shadow-sm">
+          <h2 className="text-lg font-bold text-[#14130F]">تنبيه هام للمديرين</h2>
+          <p className="text-sm sm:text-base leading-6 text-[#4A4943]">
+            بعد إتمام عملية الدفع (Versement) لدى مكتب البريد، يرجى كتابة اسم مؤسستكم على الوصل، ثم
+            التقاط صورة واضحة له ورفعها في المكان المخصص أسفله لتأكيد المعاملة وتفعيل حسابكم في غضون
+            24 ساعة.
+          </p>
+        </section>
+
+        {/* Existing Pending Request Status */}
+        {pendingPayment && (
+          <div className="rounded-[20px] border border-[#CFE3D9] bg-[#E4F1EB] p-6 text-center flex flex-col items-center gap-2">
+            <Clock className="h-10 w-10 text-[#0B6B4B] animate-pulse" />
+            <h3 className="text-lg font-bold text-[#14130F]">طلبك قيد المراجعة حاليًا</h3>
+            <p className="text-sm text-[#4A4943] max-w-md">
+              تم إرسال وصل الدفع بمبلغ 9,000 دج وهو بانتظار تأكيد إدارة المنصة. سيتم تفعيل حسابك مباشرة عند القبول.
+            </p>
+          </div>
+        )}
+
+        {/* Upload Proof Card */}
+        <section
+          id="upload"
+          className="rounded-[20px] border-2 border-[#0B6B4B] bg-white p-5 sm:p-7 flex flex-col gap-3.5 shadow-sm"
+        >
+          <h2 className="text-xl sm:text-2xl font-bold text-[#14130F]">رفع إثبات الدفع</h2>
+
+          {sent ? (
+            <div className="rounded-xl border border-[#CFE3D9] bg-[#E4F1EB] p-6 text-center flex flex-col items-center gap-2">
+              <CheckCircle2 className="h-10 w-10 text-[#0B6B4B]" />
+              <h3 className="text-lg font-bold text-[#14130F]">تم استلام وصل الدفع بنجاح</h3>
+              <p className="text-sm text-[#4A4943] max-w-md">
+                وصلك قيد المراجعة لدى إدارة المنصة وسيتم تفعيل حساب مؤسستك وإرسال إشعار لك خلال 24 ساعة.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSent(false);
+                  removeFile();
+                  setInstitutionName("");
+                }}
+                className="mt-3 text-xs font-semibold text-[#0B6B4B] underline"
+              >
+                رفع وصل آخر
+              </button>
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                mutation.mutate();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="institution" className="text-sm font-semibold text-[#14130F]">
+                  اسم المؤسسة
+                </label>
+                <input
+                  id="institution"
+                  name="institution"
+                  type="text"
+                  required
+                  placeholder="مثال: مدرسة النجاح"
+                  value={institutionName}
+                  onChange={(e) => setInstitutionName(e.target.value)}
+                  className="h-12 w-full rounded-xl border border-[#CFCABD] bg-white px-4 text-sm text-[#14130F] outline-none transition focus:border-[#0B6B4B] focus:ring-2 focus:ring-[#0B6B4B]/20"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-[#14130F]">وصل الدفع</label>
+
+                {!file ? (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      if (e.dataTransfer.files?.[0]) {
+                        handleFileSelected(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`rounded-2xl border-2 border-dashed p-7 flex flex-col items-center justify-center gap-2 cursor-pointer transition ${
+                      isDragging
+                        ? "border-[#0B6B4B] bg-[#E4F1EB]"
+                        : "border-[#CFCABD] bg-[#F6F4EF]/60 hover:border-[#0B6B4B] hover:bg-[#F6F4EF]"
+                    }`}
+                  >
+                    <Upload className="h-7 w-7 text-[#0B6B4B]" />
+                    <strong className="text-sm sm:text-base font-bold text-[#14130F]">
+                      اضغط لاختيار الملف أو اسحبه وأفلته هنا
+                    </strong>
+                    <span className="text-xs text-[#5B5A55]">
+                      JPG أو PNG أو WEBP أو PDF — الحد الأقصى 5 ميغابايت
+                    </span>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          handleFileSelected(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-[#E3DFD5] bg-[#F6F4EF] p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {filePreview ? (
+                        <img
+                          src={filePreview}
+                          alt="معاينة الوصل"
+                          className="h-14 w-14 rounded-lg object-cover border border-[#CFCABD]"
+                        />
+                      ) : (
+                        <div className="h-14 w-14 rounded-lg bg-red-100 text-red-700 font-bold flex items-center justify-center text-sm border border-red-200">
+                          <FileText className="h-6 w-6" />
+                        </div>
+                      )}
+                      <div className="flex flex-col min-w-0">
+                        <strong className="text-sm font-bold text-[#14130F] truncate">
+                          {file.name}
+                        </strong>
+                        <span className="text-xs text-[#5B5A55]">
+                          {(file.size / 1024).toFixed(1)} KB
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={removeFile}
+                      className="rounded-lg border border-[#CFCABD] bg-white px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      <span>إزالة</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={mutation.isPending}
+                className="h-[52px] w-full rounded-xl bg-[#0B6B4B] text-base font-semibold text-white shadow-sm flex items-center justify-center gap-2 transition hover:bg-[#09573c] disabled:opacity-50"
+              >
+                {mutation.isPending ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>جارٍ رفع الوصل...</span>
+                  </>
+                ) : (
+                  <span>إرسال الوصل للمراجعة</span>
+                )}
+              </button>
+            </form>
+          )}
+        </section>
+
+        {/* Renewal Card */}
+        <section className="rounded-[20px] border border-[#E3DFD5] bg-white p-5 sm:p-7 flex flex-col gap-1.5 shadow-sm">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#14130F]">نظام التجديد</h2>
+          <p className="text-sm sm:text-base leading-6 text-[#4A4943]">
+            يتم التجديد بنفس خطوات الاشتراك: الدفع عبر CCP، ثم رفع الإثبات، ثم مراجعة الإدارة وتجديد
+            سنة جديدة.
+          </p>
+        </section>
+      </main>
+
+      <SiteFooter />
     </div>
   );
 }

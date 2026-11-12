@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SiteHeader } from "@/components/site/SiteHeader";
+import { SiteFooter } from "@/components/site/SiteFooter";
 import { useServerFn } from "@tanstack/react-start";
 import { startDemoSession } from "@/lib/demo.functions";
 import { DEMO_ACCOUNTS, type DemoRoleKey } from "@/lib/demo.shared";
@@ -177,139 +178,179 @@ function AuthPage() {
 
   if (step === "totp") {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-[#F6F4EF] text-[#14130F]" dir="rtl">
         <SiteHeader />
         <main className="mx-auto flex max-w-md flex-col justify-center px-4 py-20 sm:px-6">
-          <h1 className="text-3xl">التحقق بخطوتين</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة الخاص بك.
-          </p>
-          <form className="mt-8 space-y-5" onSubmit={handleTotpSubmit}>
-            <div className="flex justify-center">
-              <InputOTP
-                maxLength={6}
-                value={totpCode}
-                onChange={setTotpCode}
-                dir="ltr"
-              >
-                <InputOTPGroup>
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <InputOTPSlot key={i} index={i} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-            {error && (
-              <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            <Button type="submit" className="w-full" disabled={totpLoading || totpCode.length !== 6}>
-              {totpLoading ? "جارٍ التحقق…" : "تأكيد الرمز"}
-            </Button>
-          </form>
-          <button
-            type="button"
-            onClick={handleSignOutAndBack}
-            className="mt-4 text-center text-sm text-muted-foreground underline"
-          >
-            العودة وتسجيل الدخول بحساب آخر
-          </button>
+          <div className="rounded-[28px] border border-[#E3DFD5] bg-white p-8 shadow-sm sm:p-10">
+            <h1 className="text-3xl font-bold">التحقق بخطوتين</h1>
+            <p className="mt-2 text-sm text-[#4A4943]">
+              أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة الخاص بك.
+            </p>
+            <form className="mt-8 space-y-5" onSubmit={handleTotpSubmit}>
+              <div className="flex justify-center">
+                <InputOTP
+                  maxLength={6}
+                  value={totpCode}
+                  onChange={setTotpCode}
+                  dir="ltr"
+                >
+                  <InputOTPGroup>
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      <InputOTPSlot key={i} index={i} />
+                    ))}
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+              {error && (
+                <p role="alert" className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="w-full min-h-[48px] rounded-[14px] bg-[#14130F] text-white hover:bg-black" disabled={totpLoading || totpCode.length !== 6}>
+                {totpLoading ? "جارٍ التحقق…" : "تأكيد الرمز"}
+              </Button>
+            </form>
+            <button
+              type="button"
+              onClick={handleSignOutAndBack}
+              className="mt-4 block w-full text-center text-sm text-[#4A4943] underline"
+            >
+              العودة وتسجيل الدخول بحساب آخر
+            </button>
+          </div>
         </main>
+        <SiteFooter />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[#F6F4EF] text-[#14130F]" dir="rtl">
       <SiteHeader />
-      <main className="mx-auto flex max-w-md flex-col justify-center px-4 py-20 sm:px-6">
-        <h1 className="text-3xl">تسجيل الدخول</h1>
-        <p className="mt-2 text-sm text-muted-foreground">أدخل بيانات حسابك للمتابعة</p>
 
-        <form className="mt-8 space-y-5" onSubmit={handleCredentials}>
-          <div className="grid gap-2">
-            <Label htmlFor="email">البريد الإلكتروني</Label>
-            <Input
-              id="email"
-              type="email"
-              dir="ltr"
-              required
-              placeholder="email@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+      <main className="mx-auto flex max-w-[1040px] flex-wrap items-start justify-center gap-8 px-4 py-16 sm:px-6 sm:py-20">
+        {/* Right Card: Login Card */}
+        <section className="flex flex-1 basis-[420px] min-w-0 max-w-[480px] flex-col gap-6 rounded-[28px] border border-[#E3DFD5] bg-white p-8 shadow-[0_24px_48px_-28px_rgba(20,19,15,0.18)] sm:p-11">
+          <div className="flex flex-col gap-1.5">
+            <h1 className="text-[34px] font-bold tracking-tight text-[#14130F] sm:text-[38px]">
+              تسجيل الدخول
+            </h1>
+            <p className="text-base text-[#4A4943]">أدخل بيانات حسابك للمتابعة</p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="password">كلمة المرور</Label>
-            <Input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+
+          <form className="flex flex-col gap-4" onSubmit={handleCredentials}>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[#14130F]" htmlFor="email">
+                البريد الإلكتروني
+              </label>
+              <input
+                id="email"
+                type="email"
+                dir="ltr"
+                required
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full min-h-[48px] rounded-xl border border-[#CFCABD] bg-white px-3.5 text-[15px] text-[#14130F] outline-none transition focus:border-[#0B6B4B] focus:ring-1 focus:ring-[#0B6B4B]"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[#14130F]" htmlFor="password">
+                كلمة المرور
+              </label>
+              <input
+                id="password"
+                type="password"
+                dir="ltr"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full min-h-[48px] rounded-xl border border-[#CFCABD] bg-white px-3.5 text-[15px] text-[#14130F] outline-none transition focus:border-[#0B6B4B] focus:ring-1 focus:ring-[#0B6B4B]"
+              />
+            </div>
+
+            {error && (
+              <p role="alert" className="rounded-xl bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {blockedMessage && !error && (
+              <p role="alert" className="rounded-xl bg-amber-100 px-3.5 py-2.5 text-sm text-amber-900">
+                {blockedMessage}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-1 flex min-h-[52px] items-center justify-center rounded-[14px] bg-[#14130F] text-base font-semibold text-white shadow-sm transition hover:bg-black disabled:opacity-60 cursor-pointer"
+            >
+              {loading ? "جارٍ الدخول…" : "دخول"}
+            </button>
+          </form>
+
+          <div className="flex flex-col items-center gap-2 pt-1 text-[15px]">
+            <Link
+              to="/forgot-password"
+              preload="intent"
+              className="font-semibold text-[#14130F] underline underline-offset-4 transition hover:opacity-80"
+            >
+              نسيت كلمة المرور؟
+            </Link>
+            <span className="text-[#4A4943]">
+              مؤسسة جديدة؟{" "}
+              <Link
+                to="/register"
+                preload="intent"
+                className="font-bold text-[#0B6B4B] underline underline-offset-4 transition hover:opacity-80"
+              >
+                سجّل مؤسستك
+              </Link>
+            </span>
           </div>
-          {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
+        </section>
+
+        {/* Left Card: Demo Accounts Card */}
+        <section className="flex flex-1 basis-[420px] min-w-0 max-w-[480px] flex-col gap-5 rounded-[28px] border border-[#CFE3D9] bg-[#E4F1EB] p-7 sm:p-8">
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-2xl font-bold text-[#14130F]">حسابات تجريبية</h2>
+            <p className="text-[15px] leading-relaxed text-[#3C3B36]">
+              جرّب المنصة فورًا بحساب مؤقت مخصص لكل دور، ضمن مؤسسة تجريبية منفصلة عن البيانات الحقيقية.
             </p>
-          )}
-          {blockedMessage && !error && (
-            <p role="alert" className="rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-              {blockedMessage}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "جارٍ الدخول…" : "دخول"}
-          </Button>
-        </form>
+          </div>
 
-        <p className="mt-4 text-center text-sm">
-          <Link to="/forgot-password" className="font-semibold text-foreground underline">
-            نسيت كلمة المرور؟
-          </Link>
-        </p>
-
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          مؤسسة جديدة؟{" "}
-          <Link to="/register" className="font-semibold text-foreground underline">
-            سجّل مؤسستك
-          </Link>
-        </p>
-
-        <section className="mt-10 rounded-2xl border border-border bg-card p-5">
-          <h2 className="text-lg font-bold">حسابات تجريبية</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            جرّب المنصة فورًا بحساب مؤقت مخصص لكل دور، ضمن مؤسسة تجريبية منفصلة عن البيانات الحقيقية.
-          </p>
-          <div className="mt-4 grid gap-3">
+          <div className="flex flex-col gap-3.5">
             {(Object.keys(DEMO_ACCOUNTS) as DemoRoleKey[]).map((role) => (
               <div
                 key={role}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3"
+                className="flex flex-wrap items-center justify-between gap-3.5 rounded-[20px] bg-white p-5 shadow-sm"
               >
-                <div className="min-w-0">
-                  <p className="font-semibold">{DEMO_ACCOUNTS[role].label}</p>
-                  <p className="text-xs text-muted-foreground">{DEMO_ACCOUNTS[role].description}</p>
-                  <p dir="ltr" className="mt-1 text-xs text-muted-foreground">
-                    {DEMO_ACCOUNTS[role].email} · {DEMO_ACCOUNTS[role].password}
+                <div className="flex-1 basis-[220px] min-w-0 flex flex-col gap-1">
+                  <h3 className="text-lg font-bold text-[#14130F]">
+                    {DEMO_ACCOUNTS[role].label}
+                  </h3>
+                  <p className="text-sm text-[#4A4943] leading-snug">
+                    {DEMO_ACCOUNTS[role].description}
                   </p>
+                  <span dir="ltr" className="text-[13px] text-[#5B5A55] text-right">
+                    {DEMO_ACCOUNTS[role].email} · {DEMO_ACCOUNTS[role].password}
+                  </span>
                 </div>
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   disabled={demoBusy !== null}
                   onClick={() => handleDemo(role)}
+                  className="flex min-h-[44px] items-center rounded-xl border border-[#0B6B4B] px-4 text-sm font-semibold text-[#0B6B4B] transition hover:bg-[#E4F1EB] disabled:opacity-60 cursor-pointer"
                 >
                   {demoBusy === role ? "جارٍ التحضير…" : "دخول تجريبي"}
-                </Button>
+                </button>
               </div>
             ))}
           </div>
         </section>
       </main>
+
+      <SiteFooter />
     </div>
   );
 }

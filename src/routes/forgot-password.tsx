@@ -70,7 +70,7 @@ function ForgotPassword() {
               المؤقت.
             </p>
             <Button asChild className="mt-6">
-              <Link to="/auth">العودة لتسجيل الدخول</Link>
+              <Link to="/auth" preload="intent">العودة لتسجيل الدخول</Link>
             </Button>
           </div>
         ) : (

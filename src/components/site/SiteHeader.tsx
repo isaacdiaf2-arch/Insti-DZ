@@ -1,80 +1,132 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/site/BrandLogo";
-
-const links = [
-  { to: "/", label: "الرئيسية" },
-  { to: "/features", label: "المميزات" },
-  { to: "/pricing", label: "الأسعار" },
-  { to: "/subscribe", label: "الاشتراك والدفع" },
-  { to: "/trial", label: "تجربة مجانية" },
-  { to: "/contact", label: "التواصل والدعم" },
-
-] as const;
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 backdrop-blur">
-      <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
+    <header className="sticky top-0 z-50 border-b border-[#E3DFD5] bg-[#F6F4EF]/95 backdrop-blur">
+      <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <BrandLogo />
 
-        <nav className="hidden items-center gap-1 lg:flex">
-          {links.map((l) => (
-            <Link
-              key={l.to}
-              to={l.to}
-              activeOptions={{ exact: l.to === "/" }}
-              activeProps={{ className: "bg-secondary text-secondary-foreground" }}
-              className="rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-secondary-foreground"
-            >
-              {l.label}
-            </Link>
-          ))}
-          <Button asChild size="sm" variant="outline" className="ms-2">
-            <Link to="/auth">تسجيل الدخول</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link to="/register">تسجيل مؤسسة</Link>
-          </Button>
+        <nav className="hidden items-center gap-7 text-[15px] font-medium text-[#3C3B36] md:flex">
+          <Link
+            to="/"
+            hash="how"
+            preload="intent"
+            className="transition hover:text-[#14130F]"
+          >
+            كيف تعمل
+          </Link>
+          <Link
+            to="/features"
+            preload="intent"
+            activeProps={{ className: "text-[#14130F] font-semibold" }}
+            className="transition hover:text-[#14130F]"
+          >
+            المميزات
+          </Link>
+          <Link
+            to="/pricing"
+            preload="intent"
+            activeProps={{ className: "text-[#14130F] font-semibold" }}
+            className="transition hover:text-[#14130F]"
+          >
+            الأسعار
+          </Link>
+          <Link
+            to="/contact"
+            preload="intent"
+            activeProps={{ className: "text-[#14130F] font-semibold" }}
+            className="transition hover:text-[#14130F]"
+          >
+            التواصل
+          </Link>
         </nav>
+
+        <div className="hidden items-center gap-2.5 sm:flex">
+          <Link
+            to="/auth"
+            preload="intent"
+            className="flex min-h-[44px] items-center rounded-xl border border-[#CFCABD] bg-white px-5 text-[15px] font-medium text-[#14130F] shadow-sm transition hover:bg-neutral-50"
+          >
+            تسجيل الدخول
+          </Link>
+          <Link
+            to="/register"
+            preload="intent"
+            className="flex min-h-[44px] items-center rounded-xl bg-[#14130F] px-5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-black"
+          >
+            سجّل مؤسستك
+          </Link>
+        </div>
 
         <button
           type="button"
           aria-label="القائمة"
           onClick={() => setOpen((v) => !v)}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border lg:hidden"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#CFCABD] bg-white text-[#14130F] sm:hidden"
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {open && (
-        <nav className="border-t border-border bg-background px-4 py-3 lg:hidden">
-          <div className="mx-auto flex max-w-6xl flex-col gap-1">
-            {links.map((l) => (
+        <nav className="border-t border-[#E3DFD5] bg-[#F6F4EF] px-4 py-4 sm:hidden">
+          <div className="mx-auto flex max-w-[1200px] flex-col gap-2">
+            <Link
+              to="/"
+              hash="how"
+              preload="intent"
+              onClick={() => setOpen(false)}
+              className="rounded-xl px-3 py-2 text-[15px] font-medium text-[#3C3B36] hover:bg-black/5 hover:text-[#14130F]"
+            >
+              كيف تعمل
+            </Link>
+            <Link
+              to="/features"
+              preload="intent"
+              onClick={() => setOpen(false)}
+              className="rounded-xl px-3 py-2 text-[15px] font-medium text-[#3C3B36] hover:bg-black/5 hover:text-[#14130F]"
+            >
+              المميزات
+            </Link>
+            <Link
+              to="/pricing"
+              preload="intent"
+              onClick={() => setOpen(false)}
+              className="rounded-xl px-3 py-2 text-[15px] font-medium text-[#3C3B36] hover:bg-black/5 hover:text-[#14130F]"
+            >
+              الأسعار
+            </Link>
+            <Link
+              to="/contact"
+              preload="intent"
+              onClick={() => setOpen(false)}
+              className="rounded-xl px-3 py-2 text-[15px] font-medium text-[#3C3B36] hover:bg-black/5 hover:text-[#14130F]"
+            >
+              التواصل
+            </Link>
+            <div className="mt-2 flex flex-col gap-2 pt-2 border-t border-[#E3DFD5]">
               <Link
-                key={l.to}
-                to={l.to}
+                to="/auth"
+                preload="intent"
                 onClick={() => setOpen(false)}
-                className="rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                className="flex min-h-[44px] items-center justify-center rounded-xl border border-[#CFCABD] bg-white px-5 text-[15px] font-medium text-[#14130F]"
               >
-                {l.label}
-              </Link>
-            ))}
-            <Button asChild variant="outline" className="mt-2">
-              <Link to="/auth" onClick={() => setOpen(false)}>
                 تسجيل الدخول
               </Link>
-            </Button>
-            <Button asChild className="mt-2">
-              <Link to="/register" onClick={() => setOpen(false)}>
-                تسجيل مؤسسة جديدة
+              <Link
+                to="/register"
+                preload="intent"
+                onClick={() => setOpen(false)}
+                className="flex min-h-[44px] items-center justify-center rounded-xl bg-[#14130F] px-5 text-[15px] font-semibold text-white"
+              >
+                سجّل مؤسستك
               </Link>
-            </Button>
+            </div>
           </div>
         </nav>
       )}

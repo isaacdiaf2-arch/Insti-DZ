@@ -6,7 +6,7 @@ export const Route = createFileRoute("/health")({
     handlers: {
       GET: async () => {
         try {
-          const db = getServiceDb();
+          const db = await getServiceDb();
           const { error } = await db.from("institutions").select("id").limit(1).maybeSingle();
           if (error) {
             return Response.json(
