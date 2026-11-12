@@ -1,0 +1,120 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { SiteHeader } from "@/components/site/SiteHeader";
+import { SiteFooter } from "@/components/site/SiteFooter";
+
+
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Study DZ — منصة سحابية جزائرية لإدارة التعليم" },
+      {
+        name: "description",
+        content:
+          "منصة SaaS لإدارة المؤسسات التعليمية الجزائرية: لوحات تحكم للمدير والأستاذ والطالب، دروس واختبارات ونتائج، باشتراك سنوي 9,000 دج.",
+      },
+      { property: "og:title", content: "Study DZ — منصة سحابية جزائرية لإدارة التعليم" },
+      {
+        property: "og:description",
+        content: "منصة SaaS لإدارة المؤسسات التعليمية الجزائرية: لوحات تحكم للمدير والأستاذ والطالب، دروس واختبارات ونتائج، باشتراك سنوي 9,000 دج.",
+      },
+    ],
+  }),
+  component: Home,
+});
+
+const steps = [
+  { n: "1", t: "تسجيل المؤسسة", d: "أدخل معلومات المؤسسة ومعلومات المدير." },
+  { n: "2", t: "اختيار الباقة والدفع", d: "دفع 9,000 دج سنويًا عبر الحساب البريدي CCP." },
+  { n: "3", t: "رفع وصل الدفع", d: "صوّر الوصل بعد كتابة اسم المؤسسة عليه وارفعه." },
+  { n: "4", t: "التفعيل خلال 24 ساعة", d: "بعد التحقق اليدوي من الإدارة يُفعّل حسابك مباشرة." },
+];
+
+
+
+function Home() {
+  return (
+    <div className="min-h-screen">
+      <SiteHeader />
+
+      <section className="relative overflow-hidden border-b border-border bg-background">
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:py-14">
+          <h1 className="max-w-3xl text-4xl leading-[1.25] sm:text-5xl lg:text-6xl">
+            نظام رقمي للمؤسسات التعليمية والتكوينية في الجزائر
+          </h1>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Button asChild size="lg">
+              <Link to="/register">
+                سجّل مؤسستك الآن
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link to="/auth">تسجيل الدخول</Link>
+            </Button>
+            <Button asChild size="lg" variant="ghost">
+              <Link to="/pricing">اطّلع على الأسعار</Link>
+            </Button>
+          </div>
+
+          <dl className="mt-14 grid gap-4 sm:grid-cols-3">
+            {[
+              ["اشتراك سنوي واحد", "9,000 دج"],
+              ["أساتذة وطلاب وأقسام", "غير محدود"],
+              ["تفعيل الحساب", "خلال 24 ساعة"],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-border bg-card p-5">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 font-display text-2xl font-extrabold">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+
+      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+        <h2 className="text-center text-3xl">كيف تعمل المنصة؟</h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
+          أربع خطوات فقط تفصل مؤسستك عن منصة رقمية كاملة باسمها.
+        </p>
+        <ol className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((s) => (
+            <li key={s.n} className="card-soft p-6">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-accent font-display text-lg font-extrabold text-accent-foreground">
+                {s.n}
+              </span>
+              <h3 className="mt-4 text-lg">{s.t}</h3>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">{s.d}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+
+
+
+      <section className="mx-auto max-w-6xl px-4 pb-4 sm:px-6">
+        <div className="surface-hero rounded-4xl border border-border px-6 py-14 text-center sm:px-12">
+          <h2 className="text-3xl text-foreground">جاهز لرقمنة مؤسستك؟</h2>
+          <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
+            سجّل مؤسستك اليوم، ادفع 9,000 دج عبر CCP، وارفع وصل الدفع ليتم تفعيل حسابك خلال 24
+            ساعة.
+          </p>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <Button asChild size="lg">
+              <Link to="/register">تسجيل مؤسسة جديدة</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link to="/contact">طلب تجربة أو تواصل</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+
+      <SiteFooter />
+    </div>
+  );
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Study DZ",
+  "description": "منصة سحابية جزائرية لإدارة التعليم والمؤسسات التعليمية والتكوينية",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

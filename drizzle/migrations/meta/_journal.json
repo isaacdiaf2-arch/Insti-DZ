@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788225384297,
+      "tag": "0000_institution_status_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788225447703,
+      "tag": "0001_core_platform_governance",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788395312729,
+      "tag": "0002_academic_structure_and_licenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788568126586,
+      "tag": "0003_create_attendance_records",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790857065960,
+      "tag": "0004_apply_pending_security_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790900321962,
+      "tag": "0005_institutions_daira",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791106821163,
+      "tag": "0006_learning_assessment_isolation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791106844898,
+      "tag": "0007_assessment_results_published",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793518174723,
+      "tag": "0008_official_contract_signing_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793639437521,
+      "tag": "0009_official_contract_explicit_write_revokes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793689397848,
+      "tag": "0010_official_contract_creation_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793798464381,
+      "tag": "0011_platform_activity_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793871994793,
+      "tag": "0012_assessment_quiz_question_bank",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793928053638,
+      "tag": "0013_personal_schedule_entries",
+      "breakpoints": true
+    }
+  ]
+}
