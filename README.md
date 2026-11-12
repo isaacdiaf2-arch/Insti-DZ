@@ -1,1 +1,1 @@
-نظام تشغيل موحّد للمؤسسات التعليمية والتكوينية في الجزائر — Educational Institution OS / SaaS.
+نظام رقمي موحّد للمؤسسات التعليمية والتكوينية في الجزائر — Educational Institution OS / SaaS.
