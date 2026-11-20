@@ -103,14 +103,21 @@ export function quizService(db: DbClient) {
       const { sc, a } = await authorized(studentId, assessmentId);
       const exam: any = await repo.getExamWithQuestions(a.exam_id, true);
       if (!exam || exam.institution_id !== sc.institutionId) throw new ForbiddenError();
-      if (await repo.findAttempt(studentId, exam.id)) throw new Error("لقد سلّمت هذا الاختبار مسبقًا.");
-      const attemptId = await repo.createAttempt({ institution_id: sc.institutionId, exam_id: exam.id, student_id: studentId });
-      const g = gradeQuiz(exam.questions ?? [], answers);
-      await repo.saveAnswers(g.rows.map((r) => ({ ...r, institution_id: sc.institutionId, attempt_id: attemptId })));
-      await repo.finishAttempt(attemptId, g.score, g.maxScore);
-      const scaled = g.maxScore > 0 ? Math.round((g.score / g.maxScore) * Number(a.max_score) * 100) / 100 : 0;
-      await repo.recordResult({ institution_id: sc.institutionId, assessment_id: a.id, student_id: studentId, score: scaled });
-      return { score: g.score, maxScore: g.maxScore };
+      const persistSubmission = async (repoInstance: ReturnType<typeof quizRepository>) => {
+        if (await repoInstance.findAttempt(studentId, exam.id)) throw new Error("لقد سلّمت هذا الاختبار مسبقًا.");
+        const attemptId = await repoInstance.createAttempt({ institution_id: sc.institutionId, exam_id: exam.id, student_id: studentId });
+        const g = gradeQuiz(exam.questions ?? [], answers);
+        await repoInstance.saveAnswers(g.rows.map((r) => ({ ...r, institution_id: sc.institutionId, attempt_id: attemptId })));
+        await repoInstance.finishAttempt(attemptId, g.score, g.maxScore);
+        const scaled = g.maxScore > 0 ? Math.round((g.score / g.maxScore) * Number(a.max_score) * 100) / 100 : 0;
+        await repoInstance.recordResult({ institution_id: sc.institutionId, assessment_id: a.id, student_id: studentId, score: scaled });
+        return { score: g.score, maxScore: g.maxScore };
+      };
+
+      if (typeof db?.transaction === "function") {
+        return db.transaction(async (tx: any) => persistSubmission(quizRepository({ drizzle: tx } as unknown as DbClient)));
+      }
+      return persistSubmission(repo);
     },
   };
 }

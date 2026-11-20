@@ -77,6 +77,12 @@ export const registerInstitutionAccount = createServerFn({ method: "POST" })
       throw new Error(instError.message);
     }
 
+    const cleanupSignup = async () => {
+      await supabaseAdmin.from("user_roles").delete().eq("user_id", userId);
+      await supabaseAdmin.from("institutions").delete().eq("id", institution.id);
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+    };
+
     const { error: profileError } = await supabaseAdmin.from("profiles").upsert(
       {
         id: userId,
@@ -88,19 +94,29 @@ export const registerInstitutionAccount = createServerFn({ method: "POST" })
       },
       { onConflict: "id" },
     );
-    if (profileError) throw new Error(profileError.message);
+    if (profileError) {
+      await cleanupSignup();
+      throw new Error(profileError.message);
+    }
 
     const { error: roleError } = await supabaseAdmin.from("user_roles").upsert(
       { user_id: userId, role: "institution_admin", institution_id: institution.id },
       { onConflict: "user_id,role" },
     );
-    if (roleError) throw new Error(roleError.message);
+    if (roleError) {
+      await cleanupSignup();
+      throw new Error(roleError.message);
+    }
 
-    await supabaseAdmin.from("contracts").insert({
+    const { error: contractError } = await supabaseAdmin.from("contracts").insert({
       institution_id: institution.id,
       body:
-        "عقد اشتراك سنوي بين إدارة منصة Study DZ ومدير المؤسسة، مدته سنة كاملة بمبلغ 9,000 دج، يُجدَّد بعد الدفع والمراجعة.",
+        "عقد اشتراك سنوي بين إدارة منصة Insti DZ ومدير المؤسسة، مدته سنة كاملة بمبلغ 9,000 دج، يُجدَّد بعد الدفع والمراجعة.",
     });
+    if (contractError) {
+      await cleanupSignup();
+      throw new Error(contractError.message);
+    }
 
     return { institutionId: institution.id };
   });

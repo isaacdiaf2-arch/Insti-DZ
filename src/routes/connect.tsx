@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/connect")({
   head: () => ({
     meta: [
-      { title: "ربط مساعد ذكي بـ Study DZ" },
-      { name: "description", content: "خطوات ربط ChatGPT وClaude وClaude Code وغيرها بحسابك في Study DZ." },
-      { property: "og:title", content: "ربط مساعد ذكي بـ Study DZ" },
-      { property: "og:description", content: "خطوات ربط المساعدات الذكية بحسابك في Study DZ وتحديث الاتصال." },
+      { title: "ربط مساعد ذكي بـ Insti DZ" },
+      { name: "description", content: "خطوات ربط ChatGPT وClaude وClaude Code وغيرها بحسابك في Insti DZ." },
+      { property: "og:title", content: "ربط مساعد ذكي بـ Insti DZ" },
+      { property: "og:description", content: "خطوات ربط المساعدات الذكية بحسابك في Insti DZ وتحديث الاتصال." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -19,8 +19,8 @@ export const Route = createFileRoute("/connect")({
   component: ConnectPage,
 });
 
-const APP_NAME = "Study DZ";
-const SLUG = "study-dz";
+const APP_NAME = "Insti DZ";
+const SLUG = "insti-dz";
 
 function CopyBox({ value }: { value: string }) {
   const [done, setDone] = useState(false);
@@ -65,7 +65,7 @@ function ConnectPage() {
       <SiteHeader />
       <main className="mx-auto max-w-4xl space-y-8 px-4 py-10 sm:px-6">
         <section className="space-y-3">
-          <h1 className="font-display text-3xl font-extrabold">ربط مساعد ذكي بـ Study DZ</h1>
+          <h1 className="font-display text-3xl font-extrabold">ربط مساعد ذكي بـ Insti DZ</h1>
           <p className="text-muted-foreground">
             اربط ChatGPT أو Claude أو أي مساعد آخر بحسابك ليطّلع على ملفك ودورك ومؤسستك وفق صلاحياتك فقط.
           </p>

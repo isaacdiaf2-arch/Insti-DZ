@@ -42,10 +42,10 @@ import { AssessmentsPanel } from "@/components/dashboard/AssessmentsPanel";
 
 export const Route = createFileRoute("/_authenticated/institution")({
   head: () => ({ meta: [
-    { title: "لوحة المؤسسة والعقود الإلكترونية | Study DZ" },
-    { name: "description", content: "إدارة المؤسسة التعليمية ومراجعة عقود Study DZ وتوقيعها بأمان." },
-    { property: "og:title", content: "لوحة المؤسسة والعقود الإلكترونية | Study DZ" },
-    { property: "og:description", content: "إدارة المؤسسة التعليمية ومراجعة عقود Study DZ وتوقيعها بأمان." },
+    { title: "لوحة المؤسسة والعقود الإلكترونية | Insti DZ" },
+    { name: "description", content: "إدارة المؤسسة التعليمية ومراجعة عقود Insti DZ وتوقيعها بأمان." },
+    { property: "og:title", content: "لوحة المؤسسة والعقود الإلكترونية | Insti DZ" },
+    { property: "og:description", content: "إدارة المؤسسة التعليمية ومراجعة عقود Insti DZ وتوقيعها بأمان." },
     { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" },
   ] }),
   component: InstitutionDashboard,
@@ -64,9 +64,23 @@ const nav = [
   { key: "announcements", label: "الإعلانات", icon: Megaphone },
   { key: "subscription", label: "الاشتراك", icon: CreditCard },
   { key: "contract", label: "العقود الإلكترونية", icon: FileSignature },
-  { key: "download", label: "تحميل Study DZ", icon: DownloadIcon },
+  { key: "download", label: "تحميل Insti DZ", icon: DownloadIcon },
   { key: "settings", label: "الإعدادات", icon: Settings },
 ];
+
+type InstitutionMemberRow = Member & { role: string };
+type InstitutionClassRow = { id: string; name: string; stage: string | null; stream: string | null; specialty: string | null };
+type InstitutionSubjectRow = { id: string; name: string; teacher_id: string | null; classes: { name: string } | null };
+type InstitutionAnnouncementRow = { id: string; title: string; body: string; created_at: string };
+type InstitutionPaymentRow = { id: string; amount: number; paid_at: string; status: string; expires_at: string | null };
+type InstitutionProfileRow = {
+  id: string;
+  name: string;
+  status?: string | null;
+  subscription_end?: string | null;
+  logo_url: string | null;
+  primary_color: string | null;
+};
 
 function InstitutionDashboard() {
   const [tab, setTab] = useState("home");
@@ -82,12 +96,11 @@ function InstitutionDashboard() {
     queryFn: async () => await institutionDataFn(),
   });
 
-  const members = { data: institutionData.data?.members ?? [] };
-  const classes = { data: institutionData.data?.classes ?? [] };
-  const subjects = { data: institutionData.data?.subjects ?? [] };
-  const announcements = { data: institutionData.data?.announcements ?? [] };
-  const payments = { data: institutionData.data?.payments ?? [] };
-
+  const members = { data: (institutionData.data?.members ?? []) as InstitutionMemberRow[] };
+  const classes = { data: (institutionData.data?.classes ?? []) as InstitutionClassRow[] };
+  const subjects = { data: (institutionData.data?.subjects ?? []) as InstitutionSubjectRow[] };
+  const announcements = { data: (institutionData.data?.announcements ?? []) as InstitutionAnnouncementRow[] };
+  const payments = { data: (institutionData.data?.payments ?? []) as InstitutionPaymentRow[] };
 
   const createMemberFn = useServerFn(createMember);
   const deleteMemberFn = useServerFn(deleteMember);
@@ -111,9 +124,9 @@ function InstitutionDashboard() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const teachers = (members.data ?? []).filter((m) => m.role === "teacher");
-  const students = (members.data ?? []).filter((m) => m.role === "student");
-  const institution = account.data?.institution;
+  const teachers = members.data.filter((m) => m.role === "teacher");
+  const students = members.data.filter((m) => m.role === "student");
+  const institution = account.data?.institution as InstitutionProfileRow | null | undefined;
 
   return (
     <DashboardShell
@@ -222,6 +235,7 @@ function InstitutionDashboard() {
       {tab === "subscription" && institutionId && (
         <SubscriptionSection
           institutionId={institutionId}
+          institutionName={institution?.name ?? "مؤسسة"}
           payments={payments.data ?? []}
           onDone={invalidate}
         />
@@ -549,10 +563,12 @@ function AnnouncementsSection({
 
 function SubscriptionSection({
   institutionId,
+  institutionName,
   payments,
   onDone,
 }: {
   institutionId: string;
+  institutionName: string;
   payments: { id: string; amount: number; paid_at: string; status: string; expires_at: string | null }[];
   onDone: () => void;
 }) {
@@ -590,7 +606,9 @@ function SubscriptionSection({
           e.preventDefault();
           if (!file) return;
           setBusy(true);
-          const path = `${institutionId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "")}`;
+          const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_") || "proof";
+          const path = `${institutionId}/${Date.now()}-${safeName}`;
+          let uploadedPath = path;
           try {
             const base64 = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
@@ -601,7 +619,7 @@ function SubscriptionSection({
               reader.onerror = reject;
               reader.readAsDataURL(file);
             });
-            await uploadMedia({
+            const uploaded = await uploadMedia({
               data: {
                 bucket: "payment-proofs",
                 path,
@@ -609,8 +627,13 @@ function SubscriptionSection({
                 contentType: file.type || "application/pdf",
               },
             });
-          } catch (backendErr) {
-            console.warn("[Institution Payment Upload] Storage upload notice:", backendErr);
+            uploadedPath = uploaded.path;
+          } catch (uploadErr: unknown) {
+            setBusy(false);
+            toast.error(
+              uploadErr instanceof Error ? uploadErr.message : "تعذر رفع ملف وصل الدفع إلى التخزين.",
+            );
+            return;
           }
 
           try {
@@ -618,17 +641,17 @@ function SubscriptionSection({
               data: {
                 paidAt,
                 amount: 9000,
-                institutionName: "مؤسسة",
-                proofPath: path,
+                institutionName: institutionName || "مؤسسة",
+                proofPath: uploadedPath,
               },
             });
             setBusy(false);
             toast.success("🟡 تم إرسال الطلب وهو قيد المراجعة.");
             setFile(null);
             onDone();
-          } catch (paymentErr: any) {
+          } catch (paymentErr: unknown) {
             setBusy(false);
-            toast.error(paymentErr?.message ?? "تعذر إرسال وصل الدفع.");
+            toast.error(paymentErr instanceof Error ? paymentErr.message : "تعذر إرسال وصل الدفع.");
           }
         }}
       >
@@ -663,7 +686,7 @@ function SubscriptionSection({
             </p>
             <p className="text-xs text-muted-foreground">
               {p.status === "pending" && "🟡 قيد المراجعة"}
-              {p.status === "accepted" && `🟢 مقبول — ينتهي في ${p.expires_at}`}
+              {(p.status === "verified" || p.status === "accepted") && `🟢 مقبول — ينتهي في ${p.expires_at}`}
               {p.status === "rejected" && "🔴 مرفوض"}
               {p.status === "suspended" && "🟠 موقوف"}
             </p>
@@ -695,7 +718,7 @@ function SettingsSection({
               institutionId: institution.id,
               name,
               logoUrl: logo || undefined,
-              coverUrl: color || undefined,
+              primaryColor: color || undefined,
             },
           });
           toast.success("تم حفظ إعدادات المؤسسة.");

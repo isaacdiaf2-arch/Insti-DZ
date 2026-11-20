@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { openReservedConsole } from "@/lib/vault.functions";
+import { completeTotpLogin } from "@/lib/auth.functions";
+import { persistSessionToken } from "@/lib/account";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,24 +15,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import logo from "@/assets/studydz-logo-new.png.asset.json";
 
-export function BrandLogo({
-  size = "md",
-  subtitle = true,
-}: {
+export function BrandLogo(_props?: {
   size?: "sm" | "md";
   subtitle?: boolean;
 }) {
-  const box = size === "sm" ? "h-9 w-9" : "h-11 w-11";
   const navigate = useNavigate();
   const openConsole = useServerFn(openReservedConsole);
+  const completeTotp = useServerFn(completeTotpLogin);
 
   const clicks = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [passcode, setPasscode] = useState("");
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   function registerClick() {
@@ -42,6 +42,8 @@ export function BrandLogo({
     if (clicks.current >= 3) {
       clicks.current = 0;
       if (timer.current) clearTimeout(timer.current);
+      setChallengeToken(null);
+      setTotpCode("");
       setOpen(true);
     }
   }
@@ -50,18 +52,36 @@ export function BrandLogo({
     e.preventDefault();
     setBusy(true);
     try {
+      if (challengeToken) {
+        const verified = await completeTotp({
+          data: { challengeToken, code: totpCode.trim() },
+        });
+        persistSessionToken(verified.token);
+        setOpen(false);
+        setIdentifier("");
+        setPasscode("");
+        setChallengeToken(null);
+        setTotpCode("");
+        toast.success("مرحبًا بك في لوحة تحكم مدير المنصة.");
+        navigate({ to: "/admin" });
+        return;
+      }
+
       const result = await openConsole({
-        data: { identifier: email.trim(), passcode: password },
+        data: { identifier: identifier.trim(), passcode },
       });
       if (!result.ok) throw new Error("بيانات الدخول غير صحيحة.");
 
-      localStorage.setItem("sdz_session_token", result.accessToken);
-      localStorage.setItem("sdz_auth_token", result.accessToken);
-      document.cookie = `sdz_session_token=${encodeURIComponent(result.accessToken)}; path=/; max-age=604800; SameSite=Lax`;
+      if (result.requiresTotp && result.challengeToken) {
+        setChallengeToken(result.challengeToken);
+        toast.info("أدخل رمز التحقق الثنائي (2FA) لإتمام الدخول.");
+        return;
+      }
 
+      persistSessionToken(result.accessToken);
       setOpen(false);
-      setEmail("");
-      setPassword("");
+      setIdentifier("");
+      setPasscode("");
       toast.success("مرحبًا بك في لوحة تحكم مدير المنصة.");
       navigate({ to: "/admin" });
     } catch (err) {
@@ -89,41 +109,70 @@ export function BrandLogo({
         />
       </Link>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) {
+            setChallengeToken(null);
+            setTotpCode("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>دخول محجوز</DialogTitle>
             <DialogDescription>
-              أدخل بيانات الدخول المحجوزة للوصول إلى لوحة تحكم مدير المنصة.
+              {challengeToken
+                ? "أدخل رمز التحقق من تطبيق المصادقة أو رمز الاسترداد."
+                : "أدخل بيانات الدخول المحجوزة للوصول إلى لوحة تحكم مدير المنصة."}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={submit}>
-            <div className="grid gap-2">
-              <Label htmlFor="unlock-email">رقم الهاتف</Label>
-              <Input
-                id="unlock-email"
-                type="tel"
-                inputMode="tel"
-                autoComplete="off"
-                dir="ltr"
-                autoFocus
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="unlock-password">كلمة المرور</Label>
-              <Input
-                id="unlock-password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+            {!challengeToken ? (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="unlock-identifier">معرّف الدخول</Label>
+                  <Input
+                    id="unlock-identifier"
+                    type="text"
+                    autoComplete="off"
+                    dir="ltr"
+                    autoFocus
+                    required
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="unlock-password">كلمة المرور</Label>
+                  <Input
+                    id="unlock-password"
+                    type="password"
+                    required
+                    value={passcode}
+                    onChange={(e) => setPasscode(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="grid gap-2">
+                <Label htmlFor="unlock-totp">رمز التحقق الثنائي (6 أرقام أو رمز استرداد)</Label>
+                <Input
+                  id="unlock-totp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  dir="ltr"
+                  autoFocus
+                  required
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                />
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "جارٍ التحقق…" : "دخول"}
+              {busy ? "جارٍ التحقق…" : challengeToken ? "تأكيد الدخول" : "دخول"}
             </Button>
           </form>
         </DialogContent>

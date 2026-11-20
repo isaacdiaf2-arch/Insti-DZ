@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { is, Table, getTableColumns, getTableName } from "drizzle-orm";
 import * as schema from "../../../drizzle/schema";
 import { getDrizzleDb, closeDrizzleDb } from "./drizzle";
+import { resolveVerifiedTestDatabaseUrl } from "../tests/test-db-guard";
 
 describe("Drizzle Schema Integrity (Static & In-Memory)", () => {
   const EXPECTED_TABLES = [
@@ -158,19 +159,41 @@ describe("Drizzle Client & Independent Connection Handling", () => {
   });
 
   it("throws a descriptive error when TEST_DATABASE_URL is not set", () => {
-    const originalEnv = process.env.TEST_DATABASE_URL;
+    const origTest = process.env.TEST_DATABASE_URL;
+    const origDb = process.env.DATABASE_URL;
+    const origMig = process.env.LOVABLE_DB_MIGRATION_URL;
     try {
       delete process.env.TEST_DATABASE_URL;
+      delete process.env.DATABASE_URL;
+      delete process.env.LOVABLE_DB_MIGRATION_URL;
       expect(() => getDrizzleDb()).toThrowError(/TEST_DATABASE_URL is not configured/);
     } finally {
-      if (originalEnv) process.env.TEST_DATABASE_URL = originalEnv;
+      if (origTest !== undefined) process.env.TEST_DATABASE_URL = origTest;
+      if (origDb !== undefined) process.env.DATABASE_URL = origDb;
+      if (origMig !== undefined) process.env.LOVABLE_DB_MIGRATION_URL = origMig;
     }
   });
 
-  // Live database connection test: Only executed when TEST_DATABASE_URL is explicitly provided
-  const liveUrl = process.env.TEST_DATABASE_URL;
-  it.skipIf(!liveUrl)("connects and queries the live test database when TEST_DATABASE_URL is provided", async () => {
-    const db = getDrizzleDb(liveUrl);
+  it("refuses to read production DATABASE_URL under Vitest when TEST_DATABASE_URL is unset", () => {
+    const origTest = process.env.TEST_DATABASE_URL;
+    const origDb = process.env.DATABASE_URL;
+    try {
+      delete process.env.TEST_DATABASE_URL;
+      process.env.DATABASE_URL = "postgresql://user:pass@ep-prod-example.neon.tech/instidz?sslmode=require";
+      expect(resolveVerifiedTestDatabaseUrl()).toBeNull();
+      expect(() => getDrizzleDb()).toThrowError(/TEST_DATABASE_URL is not configured/);
+    } finally {
+      if (origTest !== undefined) process.env.TEST_DATABASE_URL = origTest;
+      else delete process.env.TEST_DATABASE_URL;
+      if (origDb !== undefined) process.env.DATABASE_URL = origDb;
+      else delete process.env.DATABASE_URL;
+    }
+  });
+
+  // Live database connection test: Only executed when verified TEST_DATABASE_URL is explicitly provided
+  const liveUrl = resolveVerifiedTestDatabaseUrl();
+  it.skipIf(!liveUrl)("connects and queries the live test database when verified TEST_DATABASE_URL is provided", async () => {
+    const db = getDrizzleDb(liveUrl!);
     expect(db).toBeDefined();
   });
 });

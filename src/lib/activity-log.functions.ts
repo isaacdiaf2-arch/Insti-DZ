@@ -17,11 +17,21 @@ function timingSafeEqual(a: string, b: string) {
   return diff === 0;
 }
 
+export function assertActivityLogPinConfigured(envPin = process.env["ACTIVITY_LOG_PIN"]) {
+  const expected = (envPin ?? "").trim();
+  if (!expected) {
+    throw new Error("لم يتم تهيئة رمز PIN لسجل العمليات في إعدادات الخادم (ACTIVITY_LOG_PIN).");
+  }
+  return expected;
+}
+
 export const listPlatformActivity = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => input.parse(d))
   .handler(async ({ data, context }) => {
     await requirePlatformAdmin(context);
+    const expected = assertActivityLogPinConfigured();
+
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const since = new Date(Date.now() - 15 * 60_000).toISOString();
     const { count } = await supabaseAdmin
@@ -31,8 +41,7 @@ export const listPlatformActivity = createServerFn({ method: "POST" })
       .eq("action", "activity_pin_failed")
       .gte("created_at", since);
     if ((count ?? 0) >= 5) throw new Error("محاولات كثيرة. أعد المحاولة بعد 15 دقيقة.");
-    const expected = process.env["ACTIVITY_LOG_PIN"] ?? "";
-    if (!expected || !timingSafeEqual(data.pin, expected)) {
+    if (!timingSafeEqual(data.pin, expected)) {
       await supabaseAdmin.from("audit_logs").insert({
         actor_id: context.userId, actor_role: "platform_admin", action: "activity_pin_failed",
         resource: "activity_log", result: "denied",
@@ -54,18 +63,36 @@ export const listPlatformActivity = createServerFn({ method: "POST" })
     if (s) q = q.or(`action.ilike.%${s}%,resource.ilike.%${s}%,resource_id.ilike.%${s}%`);
     const { data: rows, count: total, error } = await q;
     if (error) throw new Error("تعذر تحميل السجل.");
-    const actorIds = [...new Set((rows ?? []).map((r) => r.actor_id).filter(Boolean))] as string[];
-    const instIds = [...new Set((rows ?? []).map((r) => r.institution_id).filter(Boolean))] as string[];
+    const rowList = (rows ?? []) as Array<{
+      id: string;
+      actor_id: string | null;
+      actor_role: string | null;
+      institution_id: string | null;
+      action: string;
+      resource: string | null;
+      resource_id: string | null;
+      result: string;
+      created_at: string;
+    }>;
+    const actorIds = [...new Set(rowList.map((r) => r.actor_id).filter((id): id is string => Boolean(id)))];
+    const instIds = [...new Set(rowList.map((r) => r.institution_id).filter((id): id is string => Boolean(id)))];
     const [actors, insts] = await Promise.all([
       actorIds.length ? supabaseAdmin.from("profiles").select("id,first_name,last_name").in("id", actorIds) : { data: [] },
       instIds.length ? supabaseAdmin.from("institutions").select("id,name").in("id", instIds) : { data: [] },
     ]);
-    const an = new Map((actors.data ?? []).map((a: any) => [a.id, `${a.first_name} ${a.last_name}`.trim()]));
-    const inn = new Map((insts.data ?? []).map((i: any) => [i.id, i.name]));
+    const an = new Map<string, string>(
+      ((actors.data ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>).map((a) => [
+        a.id,
+        `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim(),
+      ]),
+    );
+    const inn = new Map<string, string>(
+      ((insts.data ?? []) as Array<{ id: string; name?: string | null }>).map((i) => [i.id, i.name ?? ""]),
+    );
     return {
       total: total ?? 0,
       pageSize: size,
-      rows: (rows ?? []).map((r) => ({
+      rows: rowList.map((r) => ({
         ...r,
         actor_name: r.actor_id ? an.get(r.actor_id) ?? null : null,
         institution_name: r.institution_id ? inn.get(r.institution_id) ?? null : null,

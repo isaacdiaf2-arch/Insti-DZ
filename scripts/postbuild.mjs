@@ -32,14 +32,14 @@ const indexHtmlContent = `<!DOCTYPE html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Study DZ — منصة سحابية جزائرية لإدارة التعليم</title>
+    <title>Insti DZ — منصة سحابية جزائرية لإدارة التعليم</title>
     <meta name="description" content="منصة SaaS لإدارة المؤسسات التعليمية الجزائرية: لوحات تحكم للمدير والأستاذ والطالب، دروس واختبارات ونتائج، باشتراك سنوي 9,000 دج." />
-    <meta name="author" content="Study DZ" />
-    <meta property="og:title" content="Study DZ — منصة سحابية جزائرية لإدارة التعليم" />
+    <meta name="author" content="Insti DZ" />
+    <meta property="og:title" content="Insti DZ — منصة سحابية جزائرية لإدارة التعليم" />
     <meta property="og:description" content="منصة SaaS لإدارة المؤسسات التعليمية الجزائرية: لوحات تحكم للمدير والأستاذ والطالب، دروس واختبارات ونتائج، باشتراك سنوي 9,000 دج." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Study DZ — منصة سحابية جزائرية لإدارة التعليم" />
+    <meta name="twitter:title" content="Insti DZ — منصة سحابية جزائرية لإدارة التعليم" />
     <meta name="twitter:description" content="منصة SaaS لإدارة المؤسسات التعليمية الجزائرية: لوحات تحكم للمدير والأستاذ والطالب، دروس واختبارات ونتائج، باشتراك سنوي 9,000 دج." />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />

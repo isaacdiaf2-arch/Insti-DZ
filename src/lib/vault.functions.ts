@@ -20,6 +20,30 @@ export const openReservedConsole = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { createHash, timingSafeEqual } = await import("node:crypto");
+    const { getServiceDb } = await import("@/server/db/adapter");
+    const { authService } = await import("@/server/auth/auth.service");
+    const { applyServerSessionCookie } = await import("@/lib/auth-session.server");
+    const {
+      countFailedLoginAttemptsSafe,
+      LOGIN_LOCKOUT_MINUTES,
+      MAX_LOGIN_ATTEMPTS,
+      recordServerLoginAttempt,
+    } = await import("@/lib/rate-limit.functions");
+
+    const db = await getServiceDb();
+    const attemptKey = `vault:${data.identifier.trim().toLowerCase()}`;
+    const since = new Date(Date.now() - LOGIN_LOCKOUT_MINUTES * 60 * 1000).toISOString();
+
+    let failedCount: number;
+    try {
+      failedCount = await countFailedLoginAttemptsSafe(db, attemptKey, since);
+    } catch {
+      throw new Error("تعذر التحقق من حد المحاولات مؤقتًا. حاول بعد قليل.");
+    }
+    if (failedCount >= MAX_LOGIN_ATTEMPTS) {
+      throw new Error("تم تجاوز الحد المسموح من المحاولات الفاشلة. حاول بعد قليل.");
+    }
+
     const digest = (v: string) => createHash("sha256").update(v, "utf8").digest();
     const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
 
@@ -27,66 +51,67 @@ export const openReservedConsole = createServerFn({ method: "POST" })
     const expectedPass = process.env["SDZ_VAULT_PASSCODE"] ?? "";
     const accountEmail = process.env["SDZ_VAULT_EMAIL"] ?? "";
     if (!expectedId || !expectedPass || !accountEmail) {
-      return { ok: false as const };
+      return {
+        ok: false as const,
+        requiresTotp: false as const,
+        challengeToken: null,
+        accessToken: null,
+      };
     }
 
     const okId = same(data.identifier.toLowerCase(), expectedId.toLowerCase());
     const okPass = same(data.passcode, expectedPass);
-    if (!okId || !okPass) return { ok: false as const };
+    if (!okId || !okPass) {
+      await recordServerLoginAttempt(db, attemptKey, false);
+      return {
+        ok: false as const,
+        requiresTotp: false as const,
+        challengeToken: null,
+        accessToken: null,
+      };
+    }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await recordServerLoginAttempt(db, attemptKey, true);
 
-    // Ensure the backing account exists, is confirmed, and holds the role.
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 200 });
-    let user = (list?.users ?? []).find(
-      (u) => (u.email ?? "").toLowerCase() === accountEmail.toLowerCase(),
-    );
+    const { data: existing } = await db
+      .from("profiles")
+      .select("id")
+      .ilike("email", accountEmail)
+      .maybeSingle();
 
-    if (!user) {
-      const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
+    let userId = existing?.id as string | undefined;
+    if (!userId) {
+      const { data: created, error } = await db.auth.admin.createUser({
         email: accountEmail,
         password: expectedPass,
         email_confirm: true,
         user_metadata: { first_name: "مدير", last_name: "المنصة" },
       });
-      if (error || !created.user) return { ok: false as const };
-      user = created.user;
-    } else {
-      await supabaseAdmin.auth.admin.updateUserById(user.id, {
-        password: expectedPass,
-        email_confirm: true,
-      });
+      if (error || !created.user) {
+        return {
+          ok: false as const,
+          requiresTotp: false as const,
+          challengeToken: null,
+          accessToken: null,
+        };
+      }
+      userId = created.user.id;
     }
 
-    await supabaseAdmin
+    await db
       .from("user_roles")
-      .upsert({ user_id: user.id, role: "platform_admin" }, { onConflict: "user_id,role" });
+      .upsert({ user_id: userId, role: "platform_admin" }, { onConflict: "user_id,role" });
 
-    const { createClient } = await import("@supabase/supabase-js");
-    const key = process.env["SUPABASE_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_ANON_KEY"]!;
-    const client = createClient(process.env["SUPABASE_URL"]!, key, {
-      auth: { persistSession: false },
-      global: {
-        fetch: (input, init) => {
-          const h = new Headers(init?.headers);
-          if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`) {
-            h.delete("Authorization");
-          }
-          h.set("apikey", key);
-          return fetch(input, { ...init, headers: h });
-        },
-      },
-    });
-
-    const { data: signed, error: signInError } = await client.auth.signInWithPassword({
-      email: accountEmail,
-      password: expectedPass,
-    });
-    if (signInError || !signed.session) return { ok: false as const };
+    const authResult = await authService(db).issueSessionOrChallengeForUser(userId);
+    if (!authResult.requiresTotp && authResult.token) {
+      applyServerSessionCookie(authResult.token);
+    }
 
     return {
       ok: true as const,
-      accessToken: signed.session.access_token,
-      refreshToken: signed.session.refresh_token,
+      requiresTotp: authResult.requiresTotp,
+      challengeToken: authResult.challengeToken,
+      accessToken: authResult.token,
+      refreshToken: "",
     };
   });

@@ -12,21 +12,53 @@ import { FIELD_LABELS, OFFICIAL_CLAUSES, PREAMBLE, OFFICIAL_NOTE, RECORD_LABELS,
 import { listOfficialContracts, getContractDefaults, saveProviderDetails, saveOfficialContract, signOfficialContract, returnOfficialContract, downloadOfficialContract, listContractAudit } from "@/lib/official-contract.functions";
 
 const blank: ContractFields = { institution_name: "", legal_form: "", address: "", institution_nif: "", commercial_register: "", manager_name: "", manager_capacity: "", signing_place: "", contract_date: new Date().toISOString().slice(0,10) };
-type RecordRow = NonNullable<Awaited<ReturnType<typeof listOfficialContracts>>>[number];
+
+interface OfficialContractRow {
+  id: string;
+  number: string;
+  version?: string | null;
+  state: "draft" | "awaiting_platform" | "returned" | "final";
+  fields: Partial<ContractFields>;
+  provider: Record<string, string>;
+  institution_evidence?: Record<string, string> | null;
+  platform_evidence?: Record<string, string> | null;
+  content_hash: string;
+  correction_note?: string | null;
+}
+
+interface ContractAuditRow {
+  id: string;
+  action: string;
+  actor_id?: string | null;
+  created_at: string;
+  result?: string;
+}
+
+type RecordRow = OfficialContractRow;
 
 export function OfficialContractsPanel({ platform = false }: { platform?: boolean }) {
   const queryClient = useQueryClient();
   const list = useServerFn(listOfficialContracts); const defaultsFn = useServerFn(getContractDefaults);
   const save = useServerFn(saveOfficialContract); const providerSave = useServerFn(saveProviderDetails);
   const sign = useServerFn(signOfficialContract); const returnFn = useServerFn(returnOfficialContract); const download = useServerFn(downloadOfficialContract);
-  const records = useQuery({ queryKey: ["official-contracts"], queryFn: () => list() });
+  const records = useQuery<OfficialContractRow[]>({
+    queryKey: ["official-contracts"],
+    queryFn: async () => ((await list()) ?? []) as OfficialContractRow[],
+  });
   const defaults = useQuery({ queryKey: ["contract-defaults"], queryFn: () => defaultsFn() });
   const [selected, setSelected] = useState<string | null>(null); const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState<ContractFields>(blank); const [replaces, setReplaces] = useState<string>();
   const [signature, setSignature] = useState(""); const [consent, setConsent] = useState(false); const [password, setPassword] = useState("");
   const [signing, setSigning] = useState(false); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
   const auditFn = useServerFn(listContractAudit);
-  const audit = useQuery({ queryKey: ["contract-audit", selected], enabled: !!selected, queryFn: () => { if (!selected) return []; return auditFn({ data: { id: selected } }); } });
+  const audit = useQuery<ContractAuditRow[]>({
+    queryKey: ["contract-audit", selected],
+    enabled: !!selected,
+    queryFn: async () => {
+      if (!selected) return [];
+      return ((await auditFn({ data: { id: selected } })) ?? []) as ContractAuditRow[];
+    },
+  });
   const record = records.data?.find(c => c.id === selected);
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ["official-contracts"] }); queryClient.invalidateQueries({ queryKey: ["contract-audit"] }); queryClient.invalidateQueries({ queryKey: ["admin"] }); };
   async function act(fn: () => Promise<unknown>, message: string) {

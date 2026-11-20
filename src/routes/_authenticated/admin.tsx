@@ -58,13 +58,14 @@ import {
 import { LicensesPanel } from "@/components/dashboard/LicensesPanel";
 import { PlatformActivityLog } from "@/components/dashboard/PlatformActivityLog";
 import { TotpSettings } from "@/components/dashboard/TotpSettings";
+import { useAccount } from "@/lib/account";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [
-    { title: "إدارة المنصة واعتماد العقود | Study DZ" },
-    { name: "description", content: "مراجعة عقود المؤسسات والتوقيع الثاني وحفظ النسخ الرسمية في Study DZ." },
-    { property: "og:title", content: "إدارة المنصة واعتماد العقود | Study DZ" },
-    { property: "og:description", content: "مراجعة عقود المؤسسات والتوقيع الثاني وحفظ النسخ الرسمية في Study DZ." },
+    { title: "إدارة المنصة واعتماد العقود | Insti DZ" },
+    { name: "description", content: "مراجعة عقود المؤسسات والتوقيع الثاني وحفظ النسخ الرسمية في Insti DZ." },
+    { property: "og:title", content: "إدارة المنصة واعتماد العقود | Insti DZ" },
+    { property: "og:description", content: "مراجعة عقود المؤسسات والتوقيع الثاني وحفظ النسخ الرسمية في Insti DZ." },
     { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" },
   ] }),
   component: AdminDashboard,
@@ -126,6 +127,102 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 
+interface AdminInstitutionRow {
+  id: string;
+  name: string;
+  type: string;
+  wilaya: string;
+  commune: string;
+  email: string;
+  phone: string;
+  status: string;
+  subscription_end: string | null;
+}
+
+interface AdminPaymentRow {
+  id: string;
+  amount: number | string;
+  method: string;
+  status: string;
+  paid_at: string;
+  expires_at: string | null;
+  proof_url: string | null;
+  institutions?: { name: string } | null;
+}
+
+interface AdminProfileRow {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  institutions?: { name: string } | null;
+}
+
+interface AdminRoleRow {
+  user_id: string;
+  role: string;
+}
+
+interface AdminContractRow {
+  id: string;
+  status: string;
+}
+
+interface AdminEventRow {
+  id: string;
+  institution_id: string;
+  status: string;
+  note: string | null;
+  created_at: string;
+  contracts?: { contract_number: string | null } | null;
+}
+
+interface AdminSupportRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  institution_name: string | null;
+  wilaya: string | null;
+  commune: string | null;
+  address: string | null;
+  phone: string;
+  email: string;
+  message: string | null;
+}
+
+interface AdminResetRow {
+  id: string;
+  full_name: string | null;
+  email: string;
+  status: string;
+  temp_code: string | null;
+}
+
+interface AdminTrialRow {
+  id: string;
+  institution_name: string;
+  contact_name?: string;
+  email: string;
+  phone: string;
+  motivation: string;
+  status: string;
+  trial_ends_at?: string | null;
+  created_at: string;
+}
+
+interface AdminDashboardPayload {
+  institutions: AdminInstitutionRow[];
+  payments: AdminPaymentRow[];
+  profiles: AdminProfileRow[];
+  roles: AdminRoleRow[];
+  contracts: AdminContractRow[];
+  events: AdminEventRow[];
+  support: AdminSupportRow[];
+  resets: AdminResetRow[];
+  trials: AdminTrialRow[];
+}
+
 function AdminDashboard() {
   const [tab, setTab] = useState("home");
   const [instQuery, setInstQuery] = useState("");
@@ -133,13 +230,17 @@ function AdminDashboard() {
   const [userQuery, setUserQuery] = useState("");
   const [userRole, setUserRole] = useState<string>("all");
   const [payFilter, setPayFilter] = useState<string>("all");
-  const [contractFilter, setContractFilter] = useState<string>("all");
+  const [contractFilter, _setContractFilter] = useState<string>("all");
   const queryClient = useQueryClient();
 
+  const account = useAccount();
+  const totpEnabled = account.data?.profile?.totp_enabled === true;
+
   const adminDataFn = useServerFn(getPlatformAdminDashboardData);
-  const adminData = useQuery({
+  const adminData = useQuery<AdminDashboardPayload>({
     queryKey: ["admin", "dashboard"],
-    queryFn: async () => await adminDataFn(),
+    enabled: totpEnabled,
+    queryFn: async () => (await adminDataFn()) as AdminDashboardPayload,
   });
 
   const institutions = { data: adminData.data?.institutions ?? [] };
@@ -150,7 +251,6 @@ function AdminDashboard() {
   const events = { data: adminData.data?.events ?? [] };
   const support = { data: adminData.data?.support ?? [] };
   const resets = { data: adminData.data?.resets ?? [] };
-
 
   const resolveResetFn = useServerFn(resolvePasswordReset);
 
@@ -174,7 +274,7 @@ function AdminDashboard() {
   const expiryFn = useServerFn(runSubscriptionExpiry);
 
   const review = useMutation({
-    mutationFn: (vars: { paymentId: string; decision: "accepted" | "rejected" | "needs_modification"; rejectionReason?: string | null }) =>
+    mutationFn: (vars: { paymentId: string; decision: "verified" | "accepted" | "rejected" | "needs_modification"; rejectionReason?: string | null }) =>
       reviewFn({ data: vars }),
     onSuccess: () => {
       toast.success("تم تحديث حالة الدفع.");
@@ -210,7 +310,7 @@ function AdminDashboard() {
   const contractList = contracts.data ?? [];
   const profileList = profiles.data ?? [];
 
-  const accepted = pays.filter((p) => p.status === "accepted");
+  const accepted = pays.filter((p) => p.status === "verified" || p.status === "accepted");
   const revenue = accepted.reduce((sum, p) => sum + Number(p.amount), 0);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -265,32 +365,28 @@ function AdminDashboard() {
     });
   }, [profileList, roleByUser, userQuery, userRole]);
 
-  const filteredPayments = pays.filter((p) => payFilter === "all" || p.status === payFilter);
-  const filteredContracts = contractList.filter(
+  const filteredPayments = pays.filter(
+    (p) =>
+      payFilter === "all" ||
+      (payFilter === "accepted"
+        ? p.status === "verified" || p.status === "accepted"
+        : p.status === payFilter),
+  );
+  const _filteredContracts = contractList.filter(
     (c) => contractFilter === "all" || c.status === contractFilter,
   );
 
-  const trialList = (adminData.data?.trials ?? []) as Array<{
-    id: string;
-    institution_name: string;
-    contact_name: string;
-    email: string;
-    phone: string;
-    status: string;
-    created_at: string;
-  }>;
+  const trialList: AdminTrialRow[] = adminData.data?.trials ?? [];
 
   const decideTrial = useServerFn(decideTrialRequest);
   const trialDecision = useMutation({
     mutationFn: (vars: { id: string; approve: boolean }) => decideTrial({ data: vars }),
     onSuccess: (_r, vars) => {
       toast.success(vars.approve ? "تم تفعيل التجربة لمدة 24 ساعة" : "تم رفض الطلب");
-      void queryClient.invalidateQueries({ queryKey: ["admin", "trials"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
-
 
   const pendingAlerts =
     pays.filter((p) => p.status === "pending").length +
@@ -306,7 +402,22 @@ function AdminDashboard() {
       onChange={setTab}
       notifications={pendingAlerts}
     >
-      {tab === "home" && (
+      {!account.isLoading && account.data?.user && !totpEnabled ? (
+        <div className="space-y-4">
+          <div className="card-soft border-warning/40 bg-warning-soft/40 p-5">
+            <h2 className="font-display text-lg font-extrabold">
+              تفعيل المصادقة الثنائية (2FA) إلزامي لحساب مدير المنصة
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              حمايةً للبيانات الإدارية والمالية والعقود الرسمية، لا يمكن تنفيذ عمليات إدارة المنصة قبل
+              تفعيل المصادقة الثنائية (TOTP) على حسابك.
+            </p>
+          </div>
+          <TotpSettings />
+        </div>
+      ) : (
+        <>
+          {tab === "home" && (
         <div className="space-y-4">
           <section className="card-soft p-4">
             <h2 className="mb-3 text-base">⚡ إجراءات سريعة</h2>
@@ -665,7 +776,7 @@ function AdminDashboard() {
                 </div>
                 <span className="shrink-0 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground">
                   {p.status === "pending" && "🟡 قيد المراجعة"}
-                  {p.status === "accepted" && "🟢 مقبول"}
+                  {(p.status === "verified" || p.status === "accepted") && "🟢 مقبول"}
                   {p.status === "rejected" && "🔴 مرفوض"}
                   {p.status === "suspended" && "🟠 موقوف"}
                 </span>
@@ -674,7 +785,7 @@ function AdminDashboard() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   size="sm"
-                  onClick={() => review.mutate({ paymentId: p.id, decision: "accepted" })}
+                  onClick={() => review.mutate({ paymentId: p.id, decision: "verified" })}
                 >
                   <CheckCircle2 className="ms-1 h-4 w-4" /> قبول الدفع
                 </Button>
@@ -940,7 +1051,9 @@ function AdminDashboard() {
         </div>
       )}
 
-      {tab === "security" && <TotpSettings />}
+          {tab === "security" && <TotpSettings />}
+        </>
+      )}
     </DashboardShell>
   );
 }

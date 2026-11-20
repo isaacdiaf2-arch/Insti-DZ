@@ -21,6 +21,58 @@ function fmt(date: string | null | undefined) {
   return new Date(date).toLocaleString("ar-DZ", { dateStyle: "short", timeStyle: "short" });
 }
 
+interface ReviewInstitutionRow {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+  wilaya: string;
+  commune: string;
+  email: string;
+  created_at: string;
+  rejection_reason?: string | null;
+}
+
+interface ChangeRequestRow {
+  id: string;
+  target: string;
+  status: string;
+  created_at: string;
+  old_values: unknown;
+  new_values: unknown;
+  decision_note?: string | null;
+}
+
+interface AuditLogRow {
+  id: string;
+  action: string;
+  resource?: string | null;
+  resource_id?: string | null;
+  actor_role?: string | null;
+  result: string;
+  created_at: string;
+}
+
+interface InvoiceRow {
+  id: string;
+  number: string;
+  payment_id?: string | null;
+  amount: number | string;
+  method: string;
+  status: string;
+  issued_at: string;
+  period_start?: string | null;
+  period_end?: string | null;
+  institutions?: { name?: string } | null;
+}
+
+interface IssuablePaymentRow {
+  id: string;
+  amount: number | string;
+  paid_at: string;
+  institutions?: { name?: string } | null;
+}
+
 /** مراجعة طلبات تسجيل المؤسسات: قبول / رفض بسبب / تعليق / أرشفة */
 export function InstitutionReviewPanel() {
   const queryClient = useQueryClient();
@@ -28,9 +80,9 @@ export function InstitutionReviewPanel() {
   const review = useServerFn(reviewInstitution);
   const fetchPending = useServerFn(listReviewInstitutions);
 
-  const pending = useQuery({
+  const pending = useQuery<ReviewInstitutionRow[]>({
     queryKey: ["admin", "institution-review"],
-    queryFn: () => fetchPending(),
+    queryFn: async () => (await fetchPending()) as ReviewInstitutionRow[],
   });
 
   const decide = useMutation({
@@ -127,9 +179,9 @@ export function ChangeRequestsPanel() {
   const decideFn = useServerFn(reviewChangeRequest);
   const fetchRequests = useServerFn(listChangeRequests);
 
-  const requests = useQuery({
+  const requests = useQuery<ChangeRequestRow[]>({
     queryKey: ["admin", "change-requests"],
-    queryFn: () => fetchRequests(),
+    queryFn: async () => (await fetchRequests()) as ChangeRequestRow[],
   });
 
   const decide = useMutation({
@@ -212,9 +264,9 @@ export function ChangeRequestsPanel() {
 export function AuditLogPanel({ institutionId }: { institutionId?: string }) {
   const [q, setQ] = useState("");
   const fetchLogs = useServerFn(listAuditLogsAdmin);
-  const logs = useQuery({
+  const logs = useQuery<AuditLogRow[]>({
     queryKey: ["audit-logs", institutionId ?? "all"],
-    queryFn: () => fetchLogs({ data: {} }),
+    queryFn: async () => (await fetchLogs({ data: {} })) as AuditLogRow[],
   });
 
   const list = (logs.data ?? []).filter(
@@ -284,15 +336,15 @@ export function InvoicesPanel({
   const fetchInvoices = useServerFn(listInvoices);
   const fetchIssuablePayments = useServerFn(listIssuablePayments);
 
-  const invoices = useQuery({
+  const invoices = useQuery<InvoiceRow[]>({
     queryKey: ["invoices", institutionId ?? "all"],
-    queryFn: () => fetchInvoices({ data: institutionId ? { institutionId } : undefined }),
+    queryFn: async () => (await fetchInvoices({ data: institutionId ? { institutionId } : undefined })) as InvoiceRow[],
   });
 
-  const acceptedPayments = useQuery({
+  const acceptedPayments = useQuery<IssuablePaymentRow[]>({
     enabled: allowIssue,
     queryKey: ["invoices", "issuable"],
-    queryFn: () => fetchIssuablePayments(),
+    queryFn: async () => (await fetchIssuablePayments()) as IssuablePaymentRow[],
   });
 
   const create = useMutation({
@@ -350,7 +402,15 @@ export function InvoicesPanel({
               <p className="mt-1 text-xs text-muted-foreground">
                 {(inv.institutions as { name?: string } | null)?.name ?? "—"} · صدرت في{" "}
                 {fmt(inv.issued_at)} · طريقة الدفع: {inv.method.toUpperCase()} · الحالة:{" "}
-                {inv.status === "paid" ? "مدفوعة" : inv.status}
+                {inv.status === "paid"
+                  ? "مدفوعة"
+                  : inv.status === "issued"
+                    ? "صادرة"
+                    : inv.status === "pending"
+                      ? "قيد الانتظار"
+                      : inv.status === "void"
+                        ? "ملغاة"
+                        : inv.status}
               </p>
               <p className="mt-1 font-semibold">
                 المبلغ: {Number(inv.amount).toLocaleString("ar-DZ")} دج — الفترة:{" "}

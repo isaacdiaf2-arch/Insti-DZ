@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 /**
  * Registers the static-asset service worker and warns the user when the device
- * is offline. Study DZ never serves sensitive data from cache, so offline mode
+ * is offline. Insti DZ never serves sensitive data from cache, so offline mode
  * shows a clear "connection required" message instead of stale data.
  */
 export function PwaRuntime() {
@@ -34,7 +34,7 @@ export function PwaRuntime() {
       role="status"
       className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-foreground px-4 py-3 text-center text-sm text-background"
     >
-      لا يوجد اتصال بالإنترنت. Study DZ يعمل عبر الخادم، ولا تُعرض أي بيانات حساسة دون اتصال.
+      لا يوجد اتصال بالإنترنت. Insti DZ يعمل عبر الخادم، ولا تُعرض أي بيانات حساسة دون اتصال.
     </div>
   );
 }

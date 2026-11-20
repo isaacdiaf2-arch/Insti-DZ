@@ -8,6 +8,7 @@ import {
   saveInstitutionMedia,
 } from "@/lib/signup.functions";
 import { loginWithCredentials } from "@/lib/auth.functions";
+import { persistSessionToken } from "@/lib/account";
 import { uploadMedia as uploadMediaServerFn } from "@/lib/storage.functions";
 import {
   INSTITUTION_TYPES,
@@ -23,16 +24,16 @@ import { SiteFooter } from "@/components/site/SiteFooter";
 export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
-      { title: "تسجيل مؤسسة جديدة | Study DZ" },
+      { title: "تسجيل مؤسسة جديدة | Insti DZ" },
       {
         name: "description",
         content:
-          "سجّل مؤسستك التعليمية في Study DZ: بيانات المؤسسة الكاملة، الشعار والغلاف، رقم الاعتماد والسجل التجاري، ثم ادفع عبر CCP ليتم التفعيل خلال 24 ساعة.",
+          "سجّل مؤسستك التعليمية في Insti DZ: بيانات المؤسسة الكاملة، الشعار والغلاف، رقم الاعتماد والسجل التجاري، ثم ادفع عبر CCP ليتم التفعيل خلال 24 ساعة.",
       },
-      { property: "og:title", content: "تسجيل مؤسسة جديدة | Study DZ" },
+      { property: "og:title", content: "تسجيل مؤسسة جديدة | Insti DZ" },
       {
         property: "og:description",
-        content: "أنشئ حساب مؤسستك التعليمية على منصة Study DZ في دقائق.",
+        content: "أنشئ حساب مؤسستك التعليمية على منصة Insti DZ في دقائق.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -162,9 +163,7 @@ function RegisterPage() {
         });
         const token = (loginRes as any)?.token || (loginRes as any)?.session?.token;
         if (token) {
-          localStorage.setItem("sdz_session_token", token);
-          localStorage.setItem("sdz_auth_token", token);
-          document.cookie = `sdz_session_token=${encodeURIComponent(token)}; path=/; max-age=604800; SameSite=Lax`;
+          persistSessionToken(token);
           try {
             await uploadMedia(institutionId);
           } catch {

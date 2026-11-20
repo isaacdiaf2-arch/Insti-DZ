@@ -11,8 +11,18 @@ import { institutionAdminContext, requirePlatformAdmin } from "./contracts.serve
 const legalText = [PREAMBLE, ...OFFICIAL_CLAUSES.map(c => `${c.title}\n${c.text}`), OFFICIAL_NOTE].join("\n\n");
 
 export const listOfficialContracts = createServerFn({ method: "GET" }).middleware([requireSupabaseAuth]).handler(async ({ context }) => {
-  // RLS independently scopes reads; no privileged client used for lists.
-  const { data, error } = await context.supabase.from("official_contracts").select("*").order("created_at", { ascending: false }).limit(100);
+  let query = context.supabase
+    .from("official_contracts")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (!context.claims.roles.includes("platform_admin")) {
+    if (!context.claims.institution_id) return [];
+    query = query.eq("institution_id", context.claims.institution_id);
+  }
+
+  const { data, error } = await query;
   if (error) throw new Error("تعذر جلب العقود.");
   return data;
 });
@@ -84,12 +94,14 @@ export const signOfficialContract = createServerFn({ method: "POST" }).middlewar
   contractFieldsSchema.parse(record.fields); providerSchema.parse(record.provider);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: profile } = await context.supabase.from("profiles").select("first_name,last_name,email").eq("id", context.userId).maybeSingle();
-  const email = profile?.email || "admin@studydz.com";
+  const email = profile?.email;
+  if (!email) throw new Error("403 — لا يمكن التحقق من هوية الموقّع.");
   const { count } = await supabaseAdmin.from("audit_logs").select("id", { count: "exact", head: true }).eq("actor_id", context.userId).eq("action", "contract_reauth_failed").gte("created_at", new Date(Date.now()-15*60_000).toISOString());
   if ((count ?? 0) >= 5) throw new Error("تجاوزت محاولات التحقق؛ حاول بعد 15 دقيقة.");
   try {
-    const authSvc = authService(getServiceDb());
-    await authSvc.authenticateUser(email, data.password);
+    const authSvc = authService(await getServiceDb());
+    const valid = await authSvc.verifyUserPasswordById(context.userId, data.password);
+    if (!valid) throw new Error("Invalid password");
   } catch (_authErr) {
     await supabaseAdmin.from("audit_logs").insert({ actor_id: context.userId, institution_id: record.institution_id, action: "contract_reauth_failed", resource: "official_contract", resource_id: record.id, result: "denied" });
     throw new Error("كلمة مرور الحساب غير صحيحة.");
@@ -108,57 +120,38 @@ export const signOfficialContract = createServerFn({ method: "POST" }).middlewar
 
 export const returnOfficialContract = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth]).inputValidator((input: unknown) => z.object({ id: z.string().uuid(), note: z.string().trim().min(5).max(1500), expected_hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(input)).handler(async ({ context, data }) => {
   await requirePlatformAdmin(context);
-  try {
-    const { getServiceDb } = await import("@/server/db/adapter");
-    const { contractService } = await import("@/server/contract/contract.service");
-    const db = await getServiceDb();
-    const service = contractService(db);
-    await service.returnForCorrection({
-      contractId: data.id,
-      actorId: context.userId,
-      expectedHash: data.expected_hash,
-      note: data.note,
-    });
-    return { ok: true };
-  } catch (err) {
-    console.warn("[returnOfficialContract] Service call failed, attempting fallback:", err);
-  }
-
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { error } = await supabaseAdmin.rpc("transition_official_contract", { _id: data.id, _actor: context.userId, _action: "return", _hash: data.expected_hash, _note: data.note });
-  if (error) throw new Error("تعذرت إعادة العقد للتصحيح.");
+  const { getServiceDb } = await import("@/server/db/adapter");
+  const { contractService } = await import("@/server/contract/contract.service");
+  const db = await getServiceDb();
+  const service = contractService(db);
+  await service.returnForCorrection({
+    contractId: data.id,
+    actorId: context.userId,
+    expectedHash: data.expected_hash,
+    note: data.note,
+  });
   return { ok: true };
 });
 
 export const downloadOfficialContract = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth]).inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).strict().parse(input)).handler(async ({ context, data }) => {
-  try {
-    const { getServiceDb } = await import("@/server/db/adapter");
-    const { contractService } = await import("@/server/contract/contract.service");
-    const db = await getServiceDb();
-    const service = contractService(db);
-    return await service.downloadVerifiedArtifact(data.id, {
-      id: context.userId,
-      role: context.claims.role ?? "institution_admin",
-      institutionId: context.claims.institution_id,
-    });
-  } catch (err) {
-    console.warn("[downloadOfficialContract] Service call failed, attempting fallback:", err);
-  }
-
-  const { data: artifact } = await context.supabase.from("contract_artifacts").select("pdf_base64,sha256").eq("contract_id", data.id).maybeSingle();
-  if (!artifact) throw new Error("403 — النسخة النهائية غير متاحة.");
-  if (await sha256(new Uint8Array(Buffer.from(artifact.pdf_base64, "base64"))) !== artifact.sha256) throw new Error("فشل التحقق من سلامة النسخة؛ تم منع التنزيل.");
-  const { data: contract } = await context.supabase.from("official_contracts").select("institution_id").eq("id", data.id).single();
-  if (!contract) throw new Error("403 — غير مسموح.");
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { error } = await supabaseAdmin.from("audit_logs").insert({ actor_id: context.userId, institution_id: contract.institution_id, action: "contract_download_verified", resource: "official_contract", resource_id: data.id, result: "success", metadata: { sha256: artifact.sha256 } });
-  if (error) throw new Error("تعذر توثيق تنزيل النسخة الرسمية.");
-  return artifact;
+  if (!context.claims.role) throw new Error("403 — غير مسموح.");
+  const { getServiceDb } = await import("@/server/db/adapter");
+  const { contractService } = await import("@/server/contract/contract.service");
+  const db = await getServiceDb();
+  const service = contractService(db);
+  return await service.downloadVerifiedArtifact(data.id, {
+    id: context.userId,
+    role: context.claims.role,
+    institutionId: context.claims.institution_id,
+  });
 });
 
 export const listContractAudit = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth]).inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).strict().parse(input)).handler(async ({ context, data }) => {
-  const { data: record } = await context.supabase.from("official_contracts").select("id").eq("id",data.id).maybeSingle();
+  const { data: record } = await context.supabase.from("official_contracts").select("id, institution_id").eq("id",data.id).maybeSingle();
   if (!record) throw new Error("403 — غير مسموح.");
+  if (!context.claims.roles.includes("platform_admin") && record.institution_id !== context.claims.institution_id) {
+    throw new Error("403 — غير مسموح.");
+  }
   const { data: events, error } = await context.supabase.from("audit_logs").select("id,action,actor_id,created_at,result").eq("resource","official_contract").eq("resource_id",data.id).order("created_at",{ ascending: true }).limit(100);
   if (error) throw new Error("تعذر جلب سجل العقد.");
   return events;

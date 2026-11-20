@@ -1,8 +1,38 @@
+import { desc, eq } from "drizzle-orm";
 import type { DbClient } from "@/server/db/adapter";
+import { auditLogs, contractArtifacts, officialContracts } from "../../../drizzle/schema";
 
 export function contractRepository(db: DbClient) {
+  const drizzleDb = db?.drizzle;
+
   return {
     async findContractById(id: string) {
+      if (drizzleDb) {
+        const [row] = await drizzleDb
+          .select({
+            id: officialContracts.id,
+            institution_id: officialContracts.institutionId,
+            number: officialContracts.number,
+            version: officialContracts.version,
+            state: officialContracts.state,
+            content_hash: officialContracts.contentHash,
+            fields: officialContracts.fields,
+            provider: officialContracts.provider,
+            legal_text: officialContracts.legalText,
+            institution_evidence: officialContracts.institutionEvidence,
+            platform_evidence: officialContracts.platformEvidence,
+            correction_note: officialContracts.correctionNote,
+            replaces_id: officialContracts.replacesId,
+            created_by: officialContracts.createdBy,
+            created_at: officialContracts.createdAt,
+            updated_at: officialContracts.updatedAt,
+          })
+          .from(officialContracts)
+          .where(eq(officialContracts.id, id))
+          .limit(1);
+        return row ?? null;
+      }
+
       const { data, error } = await db
         .from("official_contracts")
         .select("*")
@@ -13,6 +43,20 @@ export function contractRepository(db: DbClient) {
     },
 
     async findArtifactByContractId(contractId: string) {
+      if (drizzleDb) {
+        const [row] = await drizzleDb
+          .select({
+            contract_id: contractArtifacts.contractId,
+            pdf_base64: contractArtifacts.pdfBase64,
+            sha256: contractArtifacts.sha256,
+            created_at: contractArtifacts.createdAt,
+          })
+          .from(contractArtifacts)
+          .where(eq(contractArtifacts.contractId, contractId))
+          .limit(1);
+        return row ?? null;
+      }
+
       const { data, error } = await db
         .from("contract_artifacts")
         .select("contract_id, pdf_base64, sha256, created_at")
@@ -23,6 +67,22 @@ export function contractRepository(db: DbClient) {
     },
 
     async listContractsForInstitution(institutionId: string) {
+      if (drizzleDb) {
+        return drizzleDb
+          .select({
+            id: officialContracts.id,
+            number: officialContracts.number,
+            version: officialContracts.version,
+            state: officialContracts.state,
+            created_at: officialContracts.createdAt,
+            updated_at: officialContracts.updatedAt,
+            content_hash: officialContracts.contentHash,
+          })
+          .from(officialContracts)
+          .where(eq(officialContracts.institutionId, institutionId))
+          .orderBy(desc(officialContracts.createdAt));
+      }
+
       const { data, error } = await db
         .from("official_contracts")
         .select("id, number, version, state, created_at, updated_at, content_hash")
@@ -56,7 +116,20 @@ export function contractRepository(db: DbClient) {
     },
 
     async logContractDownload(actorId: string, institutionId: string, contractId: string, sha256: string) {
-      await db.from("audit_logs").insert({
+      if (drizzleDb) {
+        await drizzleDb.insert(auditLogs).values({
+          actorId,
+          institutionId,
+          action: "contract_download_verified",
+          resource: "official_contract",
+          resourceId: contractId,
+          result: "success",
+          metadata: { sha256 },
+        });
+        return;
+      }
+
+      const { error } = await db.from("audit_logs").insert({
         actor_id: actorId,
         institution_id: institutionId,
         action: "contract_download_verified",
@@ -65,6 +138,7 @@ export function contractRepository(db: DbClient) {
         result: "success",
         metadata: { sha256 },
       });
+      if (error) throw new Error(`Failed to log contract download: ${error.message}`);
     },
   };
 }

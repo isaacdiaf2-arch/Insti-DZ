@@ -3,8 +3,6 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hashPassword } from "@/server/auth/crypto";
 
-const PLATFORM_OWNER_EMAIL = "isaacdiaf2@gmail.com";
-
 const institutionSchema = z.object({
   name: z.string().min(2),
   type: z.string().min(2),
@@ -70,18 +68,26 @@ export const registerInstitution = createServerFn({ method: "POST" })
         phone: data.managerPhone,
       })
       .eq("id", userId);
-    if (profileError) throw new Error(profileError.message);
+    if (profileError) {
+      await db.from("institutions").delete().eq("id", institution.id);
+      throw new Error(profileError.message);
+    }
 
-    await db
+    const { error: roleErr } = await db
       .from("user_roles")
       .upsert(
         { user_id: userId, role: "institution_admin", institution_id: institution.id },
         { onConflict: "user_id,role" },
       );
+    if (roleErr) {
+      await db.from("profiles").update({ institution_id: null }).eq("id", userId);
+      await db.from("institutions").delete().eq("id", institution.id);
+      throw new Error(roleErr.message);
+    }
 
     await db.from("contracts").insert({
       institution_id: institution.id,
-      body: "عقد اشتراك سنوي بين إدارة منصة Study DZ ومدير المؤسسة، مدته سنة كاملة بمبلغ 9,000 دج، يُجدَّد بعد الدفع والمراجعة.",
+      body: "عقد اشتراك سنوي بين إدارة منصة Insti DZ ومدير المؤسسة، مدته سنة كاملة بمبلغ 9,000 دج، يُجدَّد بعد الدفع والمراجعة.",
     });
 
     return { institutionId: institution.id };
@@ -92,8 +98,9 @@ export const bootstrapRole = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
-    const email = String(context.claims.email ?? "").toLowerCase();
-    if (email !== PLATFORM_OWNER_EMAIL) return { role: null };
+    const ownerEmail = (process.env["PLATFORM_OWNER_EMAIL"] ?? "").toLowerCase().trim();
+    const email = String(context.claims.email ?? "").toLowerCase().trim();
+    if (!ownerEmail || !email || email !== ownerEmail) return { role: null };
     await db
       .from("user_roles")
       .upsert({ user_id: context.userId, role: "platform_admin" }, { onConflict: "user_id,role" });
@@ -140,32 +147,45 @@ export const createMember = createServerFn({ method: "POST" })
       .maybeSingle();
     if (phoneTaken) throw new Error("رقم الهاتف مستعمل مسبقًا.");
 
+    if (data.classId) {
+      const { data: cls } = await db
+        .from("classes")
+        .select("institution_id")
+        .eq("id", data.classId)
+        .maybeSingle();
+      if (!cls || cls.institution_id !== institutionId) {
+        throw new Error("القسم المحدد لا ينتمي إلى مؤسستك.");
+      }
+    }
+
     const newUserId = crypto.randomUUID();
     const passwordHash = hashPassword(data.password);
 
-    await db.from("profiles").upsert({
+    const { error: profErr } = await db.from("profiles").upsert({
       id: newUserId,
       institution_id: institutionId,
       first_name: data.firstName,
       last_name: data.lastName,
-      email: data.email,
+      email: data.email.toLowerCase().trim(),
       phone: data.phone,
-    });
-
-    await db.from("auth_credentials").upsert({
-      user_id: newUserId,
       password_hash: passwordHash,
-    }, { onConflict: "user_id" });
+      totp_enabled: false,
+    });
+    if (profErr) throw new Error(profErr.message);
 
-    await db
+    const { error: roleErr } = await db
       .from("user_roles")
       .upsert(
         { user_id: newUserId, role: data.role, institution_id: institutionId },
         { onConflict: "user_id,role" },
       );
+    if (roleErr) {
+      await db.from("profiles").delete().eq("id", newUserId);
+      throw new Error(roleErr.message);
+    }
 
     if (data.role === "student" && data.classId) {
-      await db.from("enrollments").upsert(
+      const { error: enrErr } = await db.from("enrollments").upsert(
         {
           institution_id: institutionId,
           student_id: newUserId,
@@ -173,6 +193,11 @@ export const createMember = createServerFn({ method: "POST" })
         },
         { onConflict: "student_id,class_id" },
       );
+      if (enrErr) {
+        await db.from("user_roles").delete().eq("user_id", newUserId);
+        await db.from("profiles").delete().eq("id", newUserId);
+        throw new Error(enrErr.message);
+      }
     }
 
     return { userId: newUserId };
@@ -193,6 +218,7 @@ export const deleteMember = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!adminRole?.institution_id) throw new Error("غير مسموح.");
 
+    if (data.userId === context.userId) throw new Error("لا يمكنك حذف حسابك الخاص.");
     const { data: target } = await db
       .from("profiles")
       .select("institution_id")
@@ -200,10 +226,18 @@ export const deleteMember = createServerFn({ method: "POST" })
       .maybeSingle();
     if (target?.institution_id !== adminRole.institution_id) throw new Error("غير مسموح.");
 
+    const { data: targetRoles } = await db
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.userId);
+    if ((targetRoles ?? []).some((r: any) => r.role === "platform_admin")) {
+      throw new Error("غير مسموح.");
+    }
+
     await db.from("user_roles").delete().eq("user_id", data.userId);
     await db.from("enrollments").delete().eq("student_id", data.userId);
-    await db.from("auth_credentials").delete().eq("user_id", data.userId);
-    await db.from("profiles").delete().eq("id", data.userId);
+    const { error: delErr } = await db.from("profiles").delete().eq("id", data.userId);
+    if (delErr) throw new Error(delErr.message);
     return { ok: true };
   });
 
@@ -216,13 +250,8 @@ export const transferStudent = createServerFn({ method: "POST" })
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
 
-    const { data: isPlatformAdmin } = await db
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", context.userId)
-      .eq("role", "platform_admin")
-      .maybeSingle();
-    if (!isPlatformAdmin) throw new Error("غير مسموح: تحويل الطلاب بين المؤسسات لمدير المنصة فقط.");
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
 
     const { data: target } = await db
       .from("institutions")
@@ -268,7 +297,20 @@ export const sendSupportMessage = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => supportSchema.parse(data))
   .handler(async ({ data }) => {
     const { getServiceDb } = await import("@/server/db/adapter");
+    const { countRecentInboundSafe } = await import("@/lib/inbound.functions");
     const db = await getServiceDb();
+
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const count = await countRecentInboundSafe(
+      db,
+      "count_recent_support_messages",
+      data.email,
+      since,
+    );
+    if (count >= 5) {
+      throw new Error("تم إرسال عدة رسائل مؤخرًا، حاول لاحقًا.");
+    }
+
     const { error } = await db.from("support_messages").insert({
       first_name: data.firstName,
       last_name: data.lastName,
@@ -277,7 +319,7 @@ export const sendSupportMessage = createServerFn({ method: "POST" })
       commune: data.commune,
       address: data.address,
       phone: data.phone,
-      email: data.email,
+      email: data.email.trim().toLowerCase(),
       message: data.message,
     });
     if (error) throw new Error(error.message);
@@ -297,13 +339,8 @@ export const setInstitutionStatus = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
-    const { data: isAdmin } = await db
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", context.userId)
-      .eq("role", "platform_admin")
-      .maybeSingle();
-    if (!isAdmin) throw new Error("غير مسموح: مدير المنصة فقط.");
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
 
     const { error } = await db
       .from("institutions")
@@ -328,6 +365,8 @@ export const setInstitutionStatus = createServerFn({ method: "POST" })
 export const getPlatformAdminDashboardData = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
 
@@ -344,7 +383,11 @@ export const getPlatformAdminDashboardData = createServerFn({ method: "POST" })
     ] = await Promise.all([
       db.from("institutions").select("*").order("created_at", { ascending: false }).limit(200),
       db.from("payments").select("*, institutions(name)").order("created_at", { ascending: false }).limit(200),
-      db.from("profiles").select("*, institutions(name)").order("created_at", { ascending: false }).limit(200),
+      db
+        .from("profiles")
+        .select("id, email, first_name, last_name, phone, institution_id, totp_enabled, created_at, institutions(name)")
+        .order("created_at", { ascending: false })
+        .limit(200),
       db.from("user_roles").select("user_id, role"),
       db.from("contracts").select("*, institutions(name)").order("created_at", { ascending: false }).limit(200),
       db.from("contract_events").select("*, contracts(contract_number)").order("created_at", { ascending: false }).limit(100),

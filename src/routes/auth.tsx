@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-r
 import { useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
-import { signOutEverything } from "@/lib/account";
+import { persistSessionToken, signOutEverything } from "@/lib/account";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +13,8 @@ import { SiteFooter } from "@/components/site/SiteFooter";
 import { useServerFn } from "@tanstack/react-start";
 import { startDemoSession } from "@/lib/demo.functions";
 import { DEMO_ACCOUNTS, type DemoRoleKey } from "@/lib/demo.shared";
-import { checkLoginRateLimit, recordLoginAttempt } from "@/lib/rate-limit.functions";
-import { checkTotpStatus, verifyTotp } from "@/lib/totp.functions";
-import { loginWithCredentials } from "@/lib/auth.functions";
+import { checkLoginRateLimit } from "@/lib/rate-limit.functions";
+import { completeTotpLogin, loginWithCredentials } from "@/lib/auth.functions";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: z.object({
@@ -24,13 +23,13 @@ export const Route = createFileRoute("/auth")({
   }),
   head: () => ({
     meta: [
-      { title: "تسجيل الدخول | Study DZ" },
+      { title: "تسجيل الدخول | Insti DZ" },
       {
         name: "description",
-        content: "سجّل الدخول إلى حسابك في منصة Study DZ: مدير مؤسسة، أستاذ أو طالب.",
+        content: "سجّل الدخول إلى حسابك في منصة Insti DZ: مدير مؤسسة، أستاذ أو طالب.",
       },
-      { property: "og:title", content: "تسجيل الدخول | Study DZ" },
-      { property: "og:description", content: "الدخول إلى لوحة التحكم الخاصة بك في Study DZ." },
+      { property: "og:title", content: "تسجيل الدخول | Insti DZ" },
+      { property: "og:description", content: "الدخول إلى لوحة التحكم الخاصة بك في Insti DZ." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -50,14 +49,13 @@ function AuthPage() {
   const [attempts, setAttempts] = useState(0);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [step, setStep] = useState<Step>("credentials");
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [totpCode, setTotpCode] = useState("");
   const [totpLoading, setTotpLoading] = useState(false);
 
   const startDemo = useServerFn(startDemoSession);
   const checkRate = useServerFn(checkLoginRateLimit);
-  const recordAttempt = useServerFn(recordLoginAttempt);
-  const checkTotp = useServerFn(checkTotpStatus);
-  const doVerifyTotp = useServerFn(verifyTotp);
+  const finishTotpLogin = useServerFn(completeTotpLogin);
   const [demoBusy, setDemoBusy] = useState<DemoRoleKey | null>(null);
 
   const blockedMessage = search.blocked
@@ -66,14 +64,16 @@ function AuthPage() {
       : "تم إيقاف مؤسستك. تواصل مع إدارة المنصة لإعادة التفعيل."
     : null;
 
+  const showDemoAccounts =
+    !import.meta.env.PROD && import.meta.env.VITE_ENABLE_DEMO_MODE === "true";
+
   const rawRedirect = search.redirect;
   const destination =
     rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
       ? rawRedirect
       : "/dashboard";
   function goToDestination() {
-    if (destination.startsWith("/.lovable/")) window.location.href = destination;
-    else navigate({ to: destination });
+    navigate({ to: destination });
   }
 
   async function handleDemo(role: DemoRoleKey) {
@@ -82,7 +82,7 @@ function AuthPage() {
     try {
       const res = await startDemo({ data: { role } });
       if (res.token) {
-        localStorage.setItem("sdz_session_token", res.token);
+        persistSessionToken(res.token);
       }
       toast.success(`تم الدخول بحساب تجريبي: ${DEMO_ACCOUNTS[role].label}`);
       navigate({ to: "/dashboard" });
@@ -114,22 +114,26 @@ function AuthPage() {
         setError("تم تجاوز الحد المسموح من المحاولات الفاشلة. حاول لاحقًا.");
         return;
       }
-    } catch { /* fallback to client-side check */ }
+    } catch { /* server enforces limit authoritatively inside loginWithCredentials */ }
 
     setLoading(true);
     try {
-      const independentResult = await loginWithCredentials({ data: { email: identifier, password } });
-      if (independentResult?.token) {
-        localStorage.setItem("sdz_session_token", independentResult.token);
+      const result = await loginWithCredentials({ data: { email: identifier, password } });
+      if (result?.requiresTotp && result.challengeToken) {
+        setChallengeToken(result.challengeToken);
+        setStep("totp");
         setLoading(false);
-        try { await recordAttempt({ data: { identifier, success: true } }); } catch { /* ignore */ }
+        return;
+      }
+      if (result?.token) {
+        persistSessionToken(result.token);
+        setLoading(false);
         goToDestination();
         return;
       }
       throw new Error("بيانات الدخول غير صحيحة.");
     } catch (err: any) {
       setLoading(false);
-      try { await recordAttempt({ data: { identifier, success: false } }); } catch { /* ignore */ }
       const nextAttempts = attempts + 1;
       setAttempts(nextAttempts);
       if (nextAttempts >= 5) {
@@ -147,20 +151,23 @@ function AuthPage() {
 
   async function handleTotpSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (totpCode.length !== 6) return;
+    if (!challengeToken || totpCode.trim().length < 6) return;
     setError(null);
     setTotpLoading(true);
 
     try {
-      const result = await doVerifyTotp({ data: { code: totpCode } });
-      if (!result.required || result.verified) {
-        navigate({ to: destination });
+      const result = await finishTotpLogin({
+        data: { challengeToken, code: totpCode.trim() },
+      });
+      if (result?.token) {
+        persistSessionToken(result.token);
+        goToDestination();
       } else {
-        setError("رمز التحقق غير صحيح أو منتهي الصلاحية. حاول مرة أخرى.");
+        setError("تعذّر إتمام التحقق بخطوتين.");
         setTotpCode("");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "تعذّر التحقق. حاول مرة أخرى.";
+      const msg = err instanceof Error ? err.message : "رمز التحقق غير صحيح أو منتهي الصلاحية.";
       setError(msg);
       setTotpCode("");
     } finally {
@@ -170,6 +177,7 @@ function AuthPage() {
 
   async function handleSignOutAndBack() {
     await signOutEverything();
+    setChallengeToken(null);
     setStep("credentials");
     setTotpCode("");
     setError(null);
@@ -184,12 +192,12 @@ function AuthPage() {
           <div className="rounded-[28px] border border-[#E3DFD5] bg-white p-8 shadow-sm sm:p-10">
             <h1 className="text-3xl font-bold">التحقق بخطوتين</h1>
             <p className="mt-2 text-sm text-[#4A4943]">
-              أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة الخاص بك.
+              أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة الخاص بك أو أحد أكواد الاستعادة.
             </p>
             <form className="mt-8 space-y-5" onSubmit={handleTotpSubmit}>
               <div className="flex justify-center">
                 <InputOTP
-                  maxLength={6}
+                  maxLength={8}
                   value={totpCode}
                   onChange={setTotpCode}
                   dir="ltr"
@@ -201,12 +209,25 @@ function AuthPage() {
                   </InputOTPGroup>
                 </InputOTP>
               </div>
+              <div className="space-y-1">
+                <Label htmlFor="backup-code-input" className="text-xs text-[#4A4943]">
+                  أو أدخل كود الاستعادة الاحتياطي (8 خانات)
+                </Label>
+                <Input
+                  id="backup-code-input"
+                  dir="ltr"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.trim())}
+                  placeholder="000000"
+                  className="text-center font-mono"
+                />
+              </div>
               {error && (
                 <p role="alert" className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   {error}
                 </p>
               )}
-              <Button type="submit" className="w-full min-h-[48px] rounded-[14px] bg-[#14130F] text-white hover:bg-black" disabled={totpLoading || totpCode.length !== 6}>
+              <Button type="submit" className="w-full min-h-[48px] rounded-[14px] bg-[#14130F] text-white hover:bg-black" disabled={totpLoading || totpCode.trim().length < 6}>
                 {totpLoading ? "جارٍ التحقق…" : "تأكيد الرمز"}
               </Button>
             </form>
@@ -310,44 +331,46 @@ function AuthPage() {
           </div>
         </section>
 
-        {/* Left Card: Demo Accounts Card */}
-        <section className="flex flex-1 basis-[420px] min-w-0 max-w-[480px] flex-col gap-5 rounded-[28px] border border-[#CFE3D9] bg-[#E4F1EB] p-7 sm:p-8">
-          <div className="flex flex-col gap-1.5">
-            <h2 className="text-2xl font-bold text-[#14130F]">حسابات تجريبية</h2>
-            <p className="text-[15px] leading-relaxed text-[#3C3B36]">
-              جرّب المنصة فورًا بحساب مؤقت مخصص لكل دور، ضمن مؤسسة تجريبية منفصلة عن البيانات الحقيقية.
-            </p>
-          </div>
+        {/* Left Card: Demo Accounts Card (development-only opt-in) */}
+        {showDemoAccounts && (
+          <section className="flex flex-1 basis-[420px] min-w-0 max-w-[480px] flex-col gap-5 rounded-[28px] border border-[#CFE3D9] bg-[#E4F1EB] p-7 sm:p-8">
+            <div className="flex flex-col gap-1.5">
+              <h2 className="text-2xl font-bold text-[#14130F]">حسابات تجريبية</h2>
+              <p className="text-[15px] leading-relaxed text-[#3C3B36]">
+                جرّب المنصة فورًا بحساب مؤقت مخصص لكل دور، ضمن مؤسسة تجريبية منفصلة عن البيانات الحقيقية.
+              </p>
+            </div>
 
-          <div className="flex flex-col gap-3.5">
-            {(Object.keys(DEMO_ACCOUNTS) as DemoRoleKey[]).map((role) => (
-              <div
-                key={role}
-                className="flex flex-wrap items-center justify-between gap-3.5 rounded-[20px] bg-white p-5 shadow-sm"
-              >
-                <div className="flex-1 basis-[220px] min-w-0 flex flex-col gap-1">
-                  <h3 className="text-lg font-bold text-[#14130F]">
-                    {DEMO_ACCOUNTS[role].label}
-                  </h3>
-                  <p className="text-sm text-[#4A4943] leading-snug">
-                    {DEMO_ACCOUNTS[role].description}
-                  </p>
-                  <span dir="ltr" className="text-[13px] text-[#5B5A55] text-right">
-                    {DEMO_ACCOUNTS[role].email} · {DEMO_ACCOUNTS[role].password}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={demoBusy !== null}
-                  onClick={() => handleDemo(role)}
-                  className="flex min-h-[44px] items-center rounded-xl border border-[#0B6B4B] px-4 text-sm font-semibold text-[#0B6B4B] transition hover:bg-[#E4F1EB] disabled:opacity-60 cursor-pointer"
+            <div className="flex flex-col gap-3.5">
+              {(Object.keys(DEMO_ACCOUNTS) as DemoRoleKey[]).map((role) => (
+                <div
+                  key={role}
+                  className="flex flex-wrap items-center justify-between gap-3.5 rounded-[20px] bg-white p-5 shadow-sm"
                 >
-                  {demoBusy === role ? "جارٍ التحضير…" : "دخول تجريبي"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+                  <div className="flex-1 basis-[220px] min-w-0 flex flex-col gap-1">
+                    <h3 className="text-lg font-bold text-[#14130F]">
+                      {DEMO_ACCOUNTS[role].label}
+                    </h3>
+                    <p className="text-sm text-[#4A4943] leading-snug">
+                      {DEMO_ACCOUNTS[role].description}
+                    </p>
+                    <span dir="ltr" className="text-[13px] text-[#5B5A55] text-right">
+                      {DEMO_ACCOUNTS[role].email} · {DEMO_ACCOUNTS[role].password}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={demoBusy !== null}
+                    onClick={() => handleDemo(role)}
+                    className="flex min-h-[44px] items-center rounded-xl border border-[#0B6B4B] px-4 text-sm font-semibold text-[#0B6B4B] transition hover:bg-[#E4F1EB] disabled:opacity-60 cursor-pointer"
+                  >
+                    {demoBusy === role ? "جارٍ التحضير…" : "دخول تجريبي"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       <SiteFooter />

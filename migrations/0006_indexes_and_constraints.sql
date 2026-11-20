@@ -1,5 +1,68 @@
 -- 0006_indexes_and_constraints.sql
--- Functional Indexes, Partial Unique Indexes, Check Constraints, and Performance Indexes
+-- Type Alignments, Functional Indexes, Partial Unique Indexes, Check Constraints, and Performance Indexes
+
+-- 0. Idempotent Type Alignments (before functions/triggers in 0007)
+DO $$
+DECLARE
+  r RECORD;
+  invalid_count integer := 0;
+  first_invalid_detail text := NULL;
+  parsed_date date;
+  sub_end_type text;
+  inst_id_type text;
+BEGIN
+  SELECT data_type INTO sub_end_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'subscription_end';
+
+  IF sub_end_type IS NOT NULL AND sub_end_type <> 'date' THEN
+    FOR r IN
+      SELECT id, name, subscription_end
+      FROM public.institutions
+      WHERE subscription_end IS NOT NULL AND trim(subscription_end::text) <> ''
+    LOOP
+      BEGIN
+        IF trim(r.subscription_end::text) !~ '^\d{4}-\d{2}-\d{2}$' THEN
+          invalid_count := invalid_count + 1;
+          IF first_invalid_detail IS NULL THEN
+            first_invalid_detail := 'Value: "' || r.subscription_end::text || '" at institution ID: ' || r.id::text;
+          END IF;
+        ELSE
+          parsed_date := trim(r.subscription_end::text)::date;
+        END IF;
+      EXCEPTION WHEN others THEN
+        invalid_count := invalid_count + 1;
+        IF first_invalid_detail IS NULL THEN
+          first_invalid_detail := 'Value: "' || r.subscription_end::text || '" at institution ID: ' || r.id::text || ' (Error: ' || SQLERRM || ')';
+        END IF;
+      END;
+    END LOOP;
+
+    IF invalid_count > 0 THEN
+      RAISE EXCEPTION 'MIGRATION HALTED: Found % invalid subscription_end value(s) in public.institutions. First invalid entry: %. Please rectify data before re-running.',
+        invalid_count, first_invalid_detail;
+    END IF;
+
+    ALTER TABLE public.institutions
+      ALTER COLUMN subscription_end TYPE date
+      USING (
+        CASE
+          WHEN subscription_end IS NULL OR trim(subscription_end::text) = '' THEN NULL
+          ELSE trim(subscription_end::text)::date
+        END
+      );
+  END IF;
+
+  SELECT data_type INTO inst_id_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'licenses' AND column_name = 'installation_id';
+
+  IF inst_id_type IS NOT NULL AND inst_id_type <> 'text' THEN
+    ALTER TABLE public.licenses
+      ALTER COLUMN installation_id TYPE text
+      USING installation_id::text;
+  END IF;
+END $$;
 
 -- 1. Functional & Partial Unique Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS profiles_email_unique ON public.profiles (lower(email));

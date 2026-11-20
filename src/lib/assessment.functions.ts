@@ -535,13 +535,14 @@ export const getAssessmentFormOptions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ institutionId: z.string().uuid() }).parse(data))
   .handler(async ({ data, context }) => {
-    await loadActor(context.userId);
+    const actor = await loadActor(context.userId);
+    if (!isStaff(actor) || actor.institutionId !== data.institutionId) forbid();
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const [{ data: modules }, { data: groups }, { data: students }] = await Promise.all([
-      db.from("modules").select("id, name").eq("institution_id", data.institutionId),
-      db.from("groups").select("id, name").eq("institution_id", data.institutionId),
-      db.from("profiles").select("id, first_name, last_name").eq("institution_id", data.institutionId),
+      db.from("modules").select("id, name").eq("institution_id", actor.institutionId),
+      db.from("groups").select("id, name").eq("institution_id", actor.institutionId),
+      db.from("profiles").select("id, first_name, last_name").eq("institution_id", actor.institutionId),
     ]);
     return {
       modules: (modules ?? []) as Array<{ id: string; name: string }>,

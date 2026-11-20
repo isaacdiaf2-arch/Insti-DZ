@@ -1,10 +1,10 @@
 /*
- * Study DZ service worker.
+ * Insti DZ service worker.
  * Caches STATIC ASSETS ONLY (build files, icons, fonts).
- * Never caches API calls, server functions, Supabase requests, or any
+ * Never caches API calls, server functions, or any
  * authenticated/sensitive payload — those always go to the network.
  */
-const CACHE = "studydz-static-v1";
+const CACHE = "instidz-static-v1";
 
 const isStaticAsset = (url) =>
   url.origin === self.location.origin &&

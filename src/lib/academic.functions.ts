@@ -60,12 +60,12 @@ export const getAcademicStructure = createServerFn({ method: "POST" })
     }
 
     const [programs, specializations, levels, groups, modules, skills] = await Promise.all([
-      context.supabase.from("programs").select("*").order("created_at"),
-      context.supabase.from("specializations").select("*").order("created_at"),
-      context.supabase.from("academic_levels").select("*").order("order_index"),
-      context.supabase.from("groups").select("*").order("created_at"),
-      context.supabase.from("modules").select("*").order("created_at"),
-      context.supabase.from("skills").select("*").order("created_at"),
+      context.supabase.from("programs").select("*").eq("institution_id", institutionId).order("created_at"),
+      context.supabase.from("specializations").select("*").eq("institution_id", institutionId).order("created_at"),
+      context.supabase.from("academic_levels").select("*").eq("institution_id", institutionId).order("order_index"),
+      context.supabase.from("groups").select("*").eq("institution_id", institutionId).order("created_at"),
+      context.supabase.from("modules").select("*").eq("institution_id", institutionId).order("created_at"),
+      context.supabase.from("skills").select("*").eq("institution_id", institutionId).order("created_at"),
     ]);
 
     return {
@@ -346,6 +346,9 @@ export const createSubject = createServerFn({ method: "POST" })
     if (data.classId) {
       await assertOwned(context as Ctx, "classes", data.classId, institutionId);
     }
+    if (data.teacherId) {
+      await assertOwned(context as Ctx, "profiles", data.teacherId, institutionId);
+    }
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const { data: row, error } = await db
@@ -374,15 +377,15 @@ export const createAnnouncement = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
-    const { data: role } = await context.supabase
-      .from("user_roles")
-      .select("institution_id")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    const institutionId = role?.institution_id ?? context.claims.institution_id;
+    const allowedRoles = ["teacher", "institution_admin", "platform_admin"];
+    if (!context.claims.roles.some((r) => allowedRoles.includes(r))) {
+      throw new Error("غير مسموح: نشر الإعلانات مخصص للأساتذة وإدارة المؤسسة فقط.");
+    }
+    const institutionId = context.claims.institution_id;
     if (!institutionId) {
       throw new Error("المستخدم غير مرتبط بأي مؤسسة.");
     }
+    await assertOwned(context as Ctx, "classes", data.classId, institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const { data: row, error } = await db

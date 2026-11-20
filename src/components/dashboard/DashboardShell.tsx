@@ -10,10 +10,10 @@ import {
   RefreshCw,
   Sun,
   LifeBuoy,
+  X,
 } from "lucide-react";
 import { useAccount, signOutEverything } from "@/lib/account";
 import { Button } from "@/components/ui/button";
-import logo from "@/assets/studydz-logo-new.png.asset.json";
 
 export interface NavItem {
   key: string;
@@ -60,6 +60,7 @@ export function DashboardShell({
   const isLoading = useRouterState({ select: (s) => s.status === "pending" });
   const { dark, toggle } = useDarkMode();
   const [open, setOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
 
   const account = useAccount();
   const me = {
@@ -88,9 +89,9 @@ export function DashboardShell({
   const sidebar = (
     <div className="flex h-full flex-col gap-1 overflow-y-auto p-3">
       <Link to="/" className="mb-3 flex items-center gap-2 rounded-xl px-2 py-2">
-        <img src={logo.url} alt="شعار Study DZ" className="h-9 w-9 rounded-full object-contain" />
+        <img src="/insti-dz-logo.png" alt="شعار Insti DZ" className="h-9 w-9 rounded-full object-contain" />
         <span className="min-w-0">
-          <span className="block font-display text-base font-extrabold leading-tight">Study DZ</span>
+          <span className="block font-display text-base font-extrabold leading-tight">Insti DZ</span>
           <span className="block truncate text-[11px] text-muted-foreground">{title}</span>
         </span>
       </Link>
@@ -124,14 +125,13 @@ export function DashboardShell({
           الدعم الفني
         </p>
         <p className="mt-1 text-xs text-muted-foreground">متواجدون لمساعدتك في أي وقت</p>
-        <a
-          href="https://wa.me/213671153558"
-          target="_blank"
-          rel="noreferrer"
+        <Link
+          to="/contact"
+          onClick={() => setOpen(false)}
           className="mt-2 block rounded-lg bg-brand px-3 py-2 text-center text-xs font-semibold text-brand-foreground"
         >
           تواصل معنا
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -200,13 +200,48 @@ export function DashboardShell({
                 {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>
               <div className="relative">
-                <Button variant="ghost" size="icon" aria-label="الإشعارات">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="الإشعارات"
+                  onClick={() => setAlertsOpen((v) => !v)}
+                >
                   <Bell className="h-4 w-4" />
                 </Button>
                 {notifications > 0 && (
                   <span className="pointer-events-none absolute -top-0.5 end-0.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] font-bold leading-4 text-destructive-foreground">
                     {notifications}
                   </span>
+                )}
+                {alertsOpen && (
+                  <div className="absolute end-0 top-full z-50 mt-2 w-64 rounded-xl border border-border bg-background p-3 shadow-[var(--shadow-lift)]">
+                    <div className="flex items-center justify-between border-b border-border pb-2">
+                      <span className="text-xs font-bold">الإشعارات</span>
+                      <button
+                        type="button"
+                        onClick={() => setAlertsOpen(false)}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        إغلاق
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {notifications > 0
+                        ? `لديك ${notifications} عنصرًا بانتظار المراجعة أو المتابعة.`
+                        : "لا توجد تنبيهات غير مقروءة حاليًا."}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 w-full"
+                      onClick={() => {
+                        setAlertsOpen(false);
+                        void queryClient.invalidateQueries();
+                      }}
+                    >
+                      تحديث الحالة
+                    </Button>
+                  </div>
                 )}
               </div>
 
@@ -234,7 +269,7 @@ export function DashboardShell({
           <main className="px-4 py-6 sm:px-6">{children}</main>
 
           <footer className="border-t border-border px-4 py-4 text-center text-xs text-muted-foreground">
-            Study DZ — منصة سحابية جزائرية لإدارة التعليم · الإصدار 1.0
+            Insti DZ — منصة سحابية جزائرية لإدارة التعليم · الإصدار 1.0
           </footer>
         </div>
       </div>

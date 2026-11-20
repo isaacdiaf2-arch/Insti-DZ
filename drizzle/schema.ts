@@ -30,6 +30,13 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "rejected",
 ]);
 
+export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "pending",
+  "issued",
+  "paid",
+  "void",
+]);
+
 export const questionTypeEnum = pgEnum("question_type", [
   "single_choice",
   "multiple_choice",
@@ -360,7 +367,7 @@ export const invoices = pgTable("invoices", {
   paymentId: uuid("payment_id").references(() => payments.id, { onDelete: "set null" }),
   periodEnd: text("period_end"),
   periodStart: text("period_start"),
-  status: paymentStatusEnum("status").notNull(),
+  status: invoiceStatusEnum("status").notNull(),
 });
 
 // lesson_completions
@@ -534,6 +541,7 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   institutionId: uuid("institution_id").references(() => institutions.id, { onDelete: "set null" }),
   lastName: text("last_name").notNull(),
+  passwordHash: text("password_hash"),
   phone: text("phone"),
   totpBackupCodes: text("totp_backup_codes").array(),
   totpEnabled: boolean("totp_enabled").notNull(),

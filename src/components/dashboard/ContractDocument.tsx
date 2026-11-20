@@ -1,9 +1,10 @@
-import logo from "@/assets/studydz-logo-new.png.asset.json";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 
 export const CONTRACT_STATUS_LABEL: Record<string, string> = {
   created: "🟡 تم الإنشاء",
   awaiting_institution: "🟠 بانتظار توقيع المؤسسة",
-  awaiting_platform: "🟡 بانتظار توقيع Study DZ",
+  awaiting_platform: "🟡 بانتظار توقيع Insti DZ",
   approved: "🟢 عقد معتمد",
   renewed: "🔵 تم التجديد",
   expired: "🔴 منتهي",
@@ -53,14 +54,37 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 export function ContractDocument({ contract }: { contract: ContractRow }) {
   const s = (contract.snapshot ?? {}) as ContractSnapshot;
-  const amount = Number(contract.amount ?? 7000).toLocaleString("en-US");
+  const amount = Number(contract.amount ?? 9000).toLocaleString("en-US");
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!contract.qr_payload) {
+      setQrDataUrl(null);
+      return;
+    }
+    QRCode.toDataURL(contract.qr_payload, {
+      width: 160,
+      margin: 1,
+      errorCorrectionLevel: "M",
+    })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contract.qr_payload]);
 
   return (
     <article id={`contract-${contract.id}`} className="space-y-5 bg-background p-1 print:p-6">
       <header className="flex items-center gap-3 border-b border-border pb-4">
-        <img src={logo.url} alt="شعار Study DZ" className="h-14 w-14 object-contain" />
+        <img src="/insti-dz-logo.png" alt="شعار Insti DZ" className="h-14 w-14 object-contain" />
         <div className="min-w-0">
-          <h3 className="font-display text-xl font-extrabold">عقد اشتراك منصة Study DZ</h3>
+          <h3 className="font-display text-xl font-extrabold">عقد اشتراك منصة Insti DZ</h3>
           <p className="text-xs text-muted-foreground">
             رقم العقد: <span dir="ltr">{contract.contract_number ?? "—"}</span> · تاريخ الإنشاء:{" "}
             {new Date(contract.created_at).toLocaleDateString("fr-DZ")}
@@ -72,7 +96,7 @@ export function ContractDocument({ contract }: { contract: ContractRow }) {
       </header>
 
       <section>
-        <h4 className="text-sm font-bold">الطرف الأول: إدارة منصة Study DZ</h4>
+        <h4 className="text-sm font-bold">الطرف الأول: إدارة منصة Insti DZ</h4>
         <p className="mt-1 text-sm leading-7 text-muted-foreground">
           منصة سحابية جزائرية لإدارة التعليم والتعلم — جميع المراسلات تتم داخل المنصة.
         </p>
@@ -97,7 +121,7 @@ export function ContractDocument({ contract }: { contract: ContractRow }) {
         <h4 className="text-sm font-bold">بنود العقد</h4>
         <ol className="mt-2 list-decimal space-y-2 ps-5 text-sm leading-7 text-muted-foreground">
           <li>
-            تلتزم منصة Study DZ بتوفير حساب مؤسسة كامل يشمل لوحات تحكم للمدير والأساتذة والطلاب،
+            تلتزم منصة Insti DZ بتوفير حساب مؤسسة كامل يشمل لوحات تحكم للمدير والأساتذة والطلاب،
             وإدارة الأقسام والمواد والدروس والاختبارات والنتائج.
           </li>
           <li>
@@ -127,7 +151,7 @@ export function ContractDocument({ contract }: { contract: ContractRow }) {
           at={contract.institution_signed_at}
         />
         <SignatureBlock
-          title="✍ توقيع مدير منصة Study DZ"
+          title="✍ توقيع مدير منصة Insti DZ"
           value={contract.platform_signature}
           at={contract.platform_signed_at}
         />
@@ -135,14 +159,20 @@ export function ContractDocument({ contract }: { contract: ContractRow }) {
 
       {contract.qr_payload && (
         <section className="flex items-center gap-4 rounded-lg border border-border p-3">
-          <img
-            alt="رمز التحقق من العقد"
-            className="h-28 w-28"
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(contract.qr_payload)}`}
-          />
+          {qrDataUrl ? (
+            <img
+              alt="رمز التحقق من العقد"
+              className="h-28 w-28"
+              src={qrDataUrl}
+            />
+          ) : (
+            <div className="flex h-28 w-28 items-center justify-center rounded border border-dashed border-border text-[11px] text-muted-foreground">
+              QR
+            </div>
+          )}
           <div className="text-xs text-muted-foreground">
             <p className="font-semibold text-foreground">🔳 رمز التحقق</p>
-            <p className="mt-1" dir="ltr">
+            <p className="mt-1 break-all" dir="ltr">
               {contract.qr_payload}
             </p>
             {contract.expires_at && <p className="mt-1">صلاحية العقد إلى غاية {contract.expires_at}</p>}

@@ -11,14 +11,29 @@ export async function institutionAdminContext(context: { userId: string; supabas
   return data.institution_id as string;
 }
 
-export async function requirePlatformAdmin(context: { userId: string; supabase: any }) {
-  const { data } = await context.supabase
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", context.userId)
-    .eq("role", "platform_admin")
-    .maybeSingle();
-  if (!data) throw new Error("غير مسموح: مدير المنصة فقط.");
+export async function requirePlatformAdmin(
+  context: { userId: string; supabase: any },
+  options: { requireTotp?: boolean } = {},
+) {
+  const [{ data: roleRow }, { data: profile }] = await Promise.all([
+    context.supabase
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("role", "platform_admin")
+      .maybeSingle(),
+    context.supabase
+      .from("profiles")
+      .select("totp_enabled")
+      .eq("id", context.userId)
+      .maybeSingle(),
+  ]);
+  if (!roleRow) throw new Error("غير مسموح: مدير المنصة فقط.");
+  if (options.requireTotp !== false && !profile?.totp_enabled) {
+    throw new Error(
+      "يجب تفعيل المصادقة الثنائية (2FA) لحساب مدير المنصة قبل تنفيذ العمليات الإدارية.",
+    );
+  }
 }
 
 export function contractNumber() {

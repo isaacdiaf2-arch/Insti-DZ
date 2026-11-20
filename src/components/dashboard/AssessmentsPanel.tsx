@@ -38,7 +38,7 @@ export function AssessmentsPanel({ institutionId }: { institutionId: string }) {
 
   const assessments = useQuery({
     queryKey: ["assessments", "list", institutionId],
-    enabled: !!institutionId && tab === "list",
+    enabled: !!institutionId && (tab === "list" || tab === "results"),
     queryFn: async () => listFn({ data: { limit: 100, offset: 0 } }),
   });
 

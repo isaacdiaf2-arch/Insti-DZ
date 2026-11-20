@@ -14,20 +14,21 @@ import { submitTrialRequest } from "@/lib/inbound.functions";
 import { trialRequestSchema } from "@/lib/inbound.shared";
 import { startDemoSession } from "@/lib/demo.functions";
 import { DEMO_ACCOUNTS, type DemoRoleKey } from "@/lib/demo.shared";
+import { persistSessionToken } from "@/lib/account";
 
 export const Route = createFileRoute("/trial")({
   head: () => ({
     meta: [
-      { title: "طلب تجربة مجانية 24 ساعة | Study DZ" },
+      { title: "طلب تجربة مجانية 24 ساعة | Insti DZ" },
       {
         name: "description",
         content:
-          "اطلب تجربة مجانية لمنصة Study DZ لمدة 24 ساعة: أدخل اسم مؤسستك وبريدك ورقم هاتفك ودافعك من التجربة وسيتواصل معك فريقنا.",
+          "اطلب تجربة مجانية لمنصة Insti DZ لمدة 24 ساعة: أدخل اسم مؤسستك وبريدك ورقم هاتفك ودافعك من التجربة وسيتواصل معك فريقنا.",
       },
-      { property: "og:title", content: "طلب تجربة مجانية 24 ساعة | Study DZ" },
+      { property: "og:title", content: "طلب تجربة مجانية 24 ساعة | Insti DZ" },
       {
         property: "og:description",
-        content: "جرّب منصة Study DZ لإدارة مؤسستك التعليمية مجانًا لمدة 24 ساعة.",
+        content: "جرّب منصة Insti DZ لإدارة مؤسستك التعليمية مجانًا لمدة 24 ساعة.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -43,15 +44,15 @@ function TrialPage() {
   const startDemo = useServerFn(startDemoSession);
   const navigate = useNavigate();
   const [demoBusy, setDemoBusy] = useState<DemoRoleKey | null>(null);
+  const showDemoAccounts =
+    !import.meta.env.PROD && import.meta.env.VITE_ENABLE_DEMO_MODE === "true";
 
   async function enterTrial(role: DemoRoleKey) {
     setDemoBusy(role);
     try {
       const account = await startDemo({ data: { role } });
       if (account.token) {
-        localStorage.setItem("sdz_session_token", account.token);
-        localStorage.setItem("sdz_auth_token", account.token);
-        document.cookie = `sdz_session_token=${encodeURIComponent(account.token)}; path=/; max-age=604800; SameSite=Lax`;
+        persistSessionToken(account.token);
       }
       toast.success(`تم الدخول إلى التجربة: ${DEMO_ACCOUNTS[role].label}`);
       navigate({ to: "/dashboard" });
@@ -109,34 +110,36 @@ function TrialPage() {
         </span>
         <h1 className="mt-4 text-4xl">اطلب تجربة المنصة لمدة 24 ساعة</h1>
         <p className="mt-3 leading-8 text-muted-foreground">
-          املأ الاستمارة وسيصل طلبك فورًا إلى فريق Study DZ. بعد الموافقة تُفتح لك المنصة كاملة
+          املأ الاستمارة وسيصل طلبك فورًا إلى فريق Insti DZ. بعد الموافقة تُفتح لك المنصة كاملة
           لمدة <strong className="text-foreground">24 ساعة</strong> فقط، ثم يمكنك الاشتراك السنوي
           للاستمرار.
         </p>
 
-        <section className="card-soft mt-8 p-6">
-          <h2 className="text-xl">ادخل إلى التجربة الآن</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {(Object.keys(DEMO_ACCOUNTS) as DemoRoleKey[]).map((role) => (
-              <Button
-                key={role}
-                variant="outline"
-                disabled={demoBusy !== null}
-                onClick={() => enterTrial(role)}
-              >
-                {demoBusy === role ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {DEMO_ACCOUNTS[role].label}
-              </Button>
-            ))}
-          </div>
-        </section>
+        {showDemoAccounts && (
+          <section className="card-soft mt-8 p-6">
+            <h2 className="text-xl">ادخل إلى التجربة الآن</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {(Object.keys(DEMO_ACCOUNTS) as DemoRoleKey[]).map((role) => (
+                <Button
+                  key={role}
+                  variant="outline"
+                  disabled={demoBusy !== null}
+                  onClick={() => enterTrial(role)}
+                >
+                  {demoBusy === role ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {DEMO_ACCOUNTS[role].label}
+                </Button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {sent ? (
           <div className="card-soft mt-8 p-8 text-center">
             <CheckCircle2 className="mx-auto h-12 w-12 text-success" />
             <h2 className="mt-4 text-2xl">تم استلام طلبك</h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
-              سيراجع فريق Study DZ طلبك ويتواصل معك على البريد الإلكتروني الذي أدخلته لتفعيل
+              سيراجع فريق Insti DZ طلبك ويتواصل معك على البريد الإلكتروني الذي أدخلته لتفعيل
               التجربة المجانية.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">

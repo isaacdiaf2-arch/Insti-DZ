@@ -1,18 +1,26 @@
 import { createServerFn } from "@tanstack/react-start";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { DEMO_ACCOUNTS, DEMO_INSTITUTION_EMAIL, type DemoRoleKey } from "./demo.shared";
-import { signSessionToken } from "@/server/auth/crypto";
+import { getAuthSecret, hashPassword, SESSION_TTL_SECONDS, signSessionToken } from "@/server/auth/crypto";
+
+export function isDemoModeAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.ENABLE_DEMO_MODE === "true";
+}
 
 /**
  * Provisions (idempotently) the shared demo environment: one demo institution
  * with a demo institution admin, teacher and student.
- * Completely independent of Supabase.
+ * Strictly disabled in production.
  */
 export const startDemoSession = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z.object({ role: z.enum(["institution_admin", "teacher", "student"]) }).parse(data),
   )
   .handler(async ({ data }) => {
+    if (!isDemoModeAllowed()) {
+      throw new Error("وضع التجربة غير متاح في بيئة الإنتاج.");
+    }
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
 
@@ -29,8 +37,8 @@ export const startDemoSession = createServerFn({ method: "POST" })
         .from("institutions")
         .insert({
           id: institutionId,
-          name: "مؤسسة Study DZ التجريبية",
-          name_fr: "Etablissement Demo Study DZ",
+          name: "مؤسسة Insti DZ التجريبية",
+          name_fr: "Etablissement Demo Insti DZ",
           type: "مدرسة خاصة",
           wilaya: "الجزائر",
           commune: "بئر مراد رايس",
@@ -79,6 +87,8 @@ export const startDemoSession = createServerFn({ method: "POST" })
           first_name: account.firstName,
           last_name: account.lastName,
           institution_id: institutionId,
+          password_hash: hashPassword(account.password),
+          totp_enabled: false,
         },
         { onConflict: "id" },
       );
@@ -121,28 +131,43 @@ export const startDemoSession = createServerFn({ method: "POST" })
         .eq("class_id", classId)
         .maybeSingle();
       if (!enrollment) {
-        await db.from("enrollments").insert({
-          id: "enr-demo-01",
+        const { error: enrErr } = await db.from("enrollments").insert({
           institution_id: institutionId,
           class_id: classId,
           student_id: studentId,
         });
+        if (enrErr) throw new Error(enrErr.message);
       }
     }
 
     const account = DEMO_ACCOUNTS[data.role];
     const targetUserId = demoUserIds[data.role];
-    const authSecret = process.env.AUTH_SECRET || process.env.JWT_SECRET || "study-dz-independent-auth-secret-key-2026";
+    const authSecret = getAuthSecret();
+    const sessionId = randomUUID();
+
+    const { authRepository } = await import("@/server/auth/auth.repository");
+    await authRepository(db).createSession({
+      id: sessionId,
+      user_id: targetUserId,
+      institution_id: institutionId,
+      roles: [data.role],
+      expires_at: new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString(),
+    });
+
     const token = signSessionToken(
       {
         userId: targetUserId,
         email: account.email,
         role: data.role,
         institutionId,
+        sessionId,
       },
       authSecret,
-      86400 * 7,
+      SESSION_TTL_SECONDS,
     );
+
+    const { applyServerSessionCookie } = await import("@/lib/auth-session.server");
+    applyServerSessionCookie(token);
 
     return {
       ok: true as const,

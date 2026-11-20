@@ -35,6 +35,24 @@ const nav = [
 ];
 
 type NewQuestion = { text: string; options: string[]; correct: number };
+type TeacherSubjectRow = { id: string; name: string; classes: { id?: string; name: string } | null };
+type TeacherLessonRow = { id: string; title: string; published: boolean; subjects: { name: string } | null };
+type TeacherExamRow = {
+  id: string;
+  title: string;
+  duration_minutes: number;
+  subjects: { name: string } | null;
+  classes: { name: string } | null;
+};
+type TeacherAttemptRow = {
+  id: string;
+  student_id: string;
+  submitted_at: string | null;
+  score: number | null;
+  max_score: number | null;
+  exams: { title: string } | null;
+};
+type TeacherAnnouncementRow = { id: string; title: string; body: string };
 
 function TeacherDashboard() {
   const [tab, setTab] = useState("home");
@@ -56,10 +74,11 @@ function TeacherDashboard() {
     queryFn: async () => await teacherDataFn(),
   });
 
-  const subjects = { data: teacherData.data?.subjects ?? [] };
-  const lessons = { data: teacherData.data?.lessons ?? [] };
-  const exams = { data: teacherData.data?.exams ?? [] };
-  const attempts = { data: teacherData.data?.attempts ?? [] };
+  const subjects = { data: (teacherData.data?.subjects ?? []) as TeacherSubjectRow[] };
+  const lessons = { data: (teacherData.data?.lessons ?? []) as TeacherLessonRow[] };
+  const exams = { data: (teacherData.data?.exams ?? []) as TeacherExamRow[] };
+  const attempts = { data: (teacherData.data?.attempts ?? []) as TeacherAttemptRow[] };
+  const studentNames = (teacherData.data?.studentNames ?? {}) as Record<string, string>;
 
 
   const [lessonForm, setLessonForm] = useState({
@@ -353,14 +372,14 @@ function TeacherDashboard() {
         <div className="space-y-2">
           {(attempts.data ?? []).length === 0 && <EmptyState text="لا توجد نتائج بعد." />}
           {(attempts.data ?? []).map((a) => {
-            const studentName = schedule.teacherNames[a.student_id as string] ?? "طالب";
+            const studentName = studentNames[a.student_id] ?? "طالب";
             return (
               <div key={a.id} className="card-soft flex flex-wrap items-center gap-2 p-3 text-sm">
                 <span className="font-semibold">
                   {studentName}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {(a.exams as { title: string } | null)?.title}
+                  {a.exams?.title}
                 </span>
                 <span className="ms-auto rounded-md bg-secondary px-2 py-1 text-xs">
                   {a.submitted_at ? `${a.score}/${a.max_score}` : "لم يُسلَّم"}
@@ -385,7 +404,7 @@ function TeacherAnnouncements({ institutionId, userId }: { institutionId: string
     queryKey: ["teacher", "announcements", userId],
     queryFn: async () => {
       const data = await teacherDataFn();
-      return data?.announcements ?? [];
+      return (data?.announcements ?? []) as TeacherAnnouncementRow[];
     },
   });
 

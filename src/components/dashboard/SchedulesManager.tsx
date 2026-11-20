@@ -76,25 +76,29 @@ export function SchedulesManager({
   const copySchedules = useServerFn(copyInstitutionSchedules);
   const setArchived = useServerFn(setScheduleArchived);
   const deleteSchedule = useServerFn(deleteScheduleRow);
+  const saveRoom = useServerFn(saveInstitutionRoom);
+  const deleteRoom = useServerFn(deleteInstitutionRoom);
   const sendAnnouncement = useServerFn(sendScheduleAnnouncement);
+
+  type RoomRow = { id: string; name: string; capacity: number | null };
 
   const schedulesData = useQuery({
     queryKey: ["institution", "schedules-full", institutionId],
     queryFn: async () => {
       return (await fetchSchedulesAndRooms({ data: { institutionId } })) as {
         schedules: ScheduleRow[];
-        rooms: any[];
+        rooms: RoomRow[];
       };
     },
   });
 
   const rooms = {
-    data: schedulesData.data?.rooms ?? [],
+    data: (schedulesData.data?.rooms ?? []) as RoomRow[],
     refetch: () => schedulesData.refetch(),
   };
 
   const schedules = {
-    data: schedulesData.data?.schedules ?? [],
+    data: (schedulesData.data?.schedules ?? []) as ScheduleRow[],
     refetch: () => schedulesData.refetch(),
   };
 
@@ -311,7 +315,7 @@ export function SchedulesManager({
               {[...DEFAULT_STUDY_DAYS, ...OPTIONAL_STUDY_DAYS].map((i) => (
                 <option key={i} value={i}>
                   {DAYS[i]}
-                  {OPTIONAL_STUDY_DAYS.includes(i) ? " (اختياري)" : ""}
+                  {(OPTIONAL_STUDY_DAYS as readonly number[]).includes(i) ? " (اختياري)" : ""}
                 </option>
               ))}
             </select>
@@ -410,7 +414,13 @@ export function SchedulesManager({
         </div>
       </div>
 
-      <RoomsSection institutionId={institutionId} rooms={rooms.data ?? []} onDone={refresh} />
+      <RoomsSection
+        institutionId={institutionId}
+        rooms={rooms.data ?? []}
+        saveRoom={saveRoom}
+        deleteRoom={deleteRoom}
+        onDone={refresh}
+      />
 
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <Input
@@ -440,14 +450,12 @@ export function SchedulesManager({
                 variant="outline"
                 className="ms-auto"
                 onClick={async () => {
-                  const { error } = await supabase
-                    .from("schedules")
-                    .update({ archived: false })
-                    .eq("id", r.id);
-                  if (error) toast.error(error.message);
-                  else {
+                  try {
+                    await setArchived({ data: { id: r.id, archived: false } });
                     toast.success("تمت الاستعادة.");
                     refresh();
+                  } catch (err: any) {
+                    toast.error(err?.message || "تعذر استعادة الحصة.");
                   }
                 }}
               >
@@ -490,14 +498,12 @@ export function SchedulesManager({
                 variant="ghost"
                 aria-label="أرشفة"
                 onClick={async () => {
-                  const { error } = await supabase
-                    .from("schedules")
-                    .update({ archived: true })
-                    .eq("id", r.id);
-                  if (error) toast.error(error.message);
-                  else {
+                  try {
+                    await setArchived({ data: { id: r.id, archived: true } });
                     toast.success("تمت الأرشفة.");
                     refresh();
+                  } catch (err: any) {
+                    toast.error(err?.message || "تعذر أرشفة الحصة.");
                   }
                 }}
               >
@@ -508,14 +514,15 @@ export function SchedulesManager({
                 variant="ghost"
                 aria-label="حذف"
                 onClick={async () => {
-                  const { error } = await supabase.from("schedules").delete().eq("id", r.id);
-                  if (error) toast.error(error.message);
-                  else {
+                  try {
+                    await deleteSchedule({ data: { id: r.id } });
                     await notify(
                       `تم حذف حصة ${r.subjects?.name ?? ""} من جدول ${r.classes?.name ?? ""} يوم ${DAYS[r.day_of_week]}.`,
                     );
                     toast.success("تم الحذف وإشعار الجميع.");
                     refresh();
+                  } catch (err: any) {
+                    toast.error(err?.message || "تعذر حذف الحصة.");
                   }
                 }}
               >
@@ -532,10 +539,14 @@ export function SchedulesManager({
 function RoomsSection({
   institutionId,
   rooms,
+  saveRoom,
+  deleteRoom,
   onDone,
 }: {
   institutionId: string;
   rooms: { id: string; name: string; capacity: number | null }[];
+  saveRoom: ReturnType<typeof useServerFn<typeof saveInstitutionRoom>>;
+  deleteRoom: ReturnType<typeof useServerFn<typeof deleteInstitutionRoom>>;
   onDone: () => void;
 }) {
   const [name, setName] = useState("");
@@ -549,25 +560,24 @@ function RoomsSection({
         className="grid gap-3 sm:grid-cols-[1fr_auto_auto]"
         onSubmit={async (e) => {
           e.preventDefault();
-          const payload = {
-            institution_id: institutionId,
-            name: name.trim(),
-            capacity: capacity ? Number(capacity) : null,
-          };
-          const res = editing
-            ? await supabase.from("rooms").update(payload).eq("id", editing)
-            : await supabase.from("rooms").insert(payload);
-          if (res.error) {
-            toast.error(
-              res.error.code === "23505" ? "توجد قاعة بنفس الاسم." : res.error.message,
-            );
-            return;
+          try {
+            await saveRoom({
+              data: {
+                id: editing || undefined,
+                institutionId,
+                name: name.trim(),
+                capacity: capacity ? Number(capacity) : null,
+              },
+            });
+            toast.success(editing ? "تم تعديل القاعة." : "تمت إضافة القاعة.");
+            setName("");
+            setCapacity("");
+            setEditing(null);
+            onDone();
+          } catch (err: any) {
+            const msg = String(err?.message ?? "");
+            toast.error(msg.includes("23505") ? "توجد قاعة بنفس الاسم." : msg || "تعذر حفظ القاعة.");
           }
-          toast.success(editing ? "تم تعديل القاعة." : "تمت إضافة القاعة.");
-          setName("");
-          setCapacity("");
-          setEditing(null);
-          onDone();
         }}
       >
         <Input required placeholder="اسم القاعة (مثال: A5)" value={name} onChange={(e) => setName(e.target.value)} />
@@ -606,11 +616,12 @@ function RoomsSection({
               variant="ghost"
               aria-label="حذف القاعة"
               onClick={async () => {
-                const { error } = await supabase.from("rooms").delete().eq("id", r.id);
-                if (error) toast.error(error.message);
-                else {
+                try {
+                  await deleteRoom({ data: { id: r.id } });
                   toast.success("تم حذف القاعة.");
                   onDone();
+                } catch (err: any) {
+                  toast.error(err?.message || "تعذر حذف القاعة.");
                 }
               }}
             >

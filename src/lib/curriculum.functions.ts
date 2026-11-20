@@ -214,25 +214,61 @@ export const completeLesson = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+async function resolveCallerTenantScope(context: { userId: string; claims: { roles: string[]; institution_id: string | null } }, requestedInstitutionId?: string) {
+  const isPlatform = context.claims.roles.includes("platform_admin");
+  const institutionId = isPlatform ? (requestedInstitutionId ?? context.claims.institution_id) : context.claims.institution_id;
+  if (!institutionId || (!isPlatform && requestedInstitutionId && requestedInstitutionId !== institutionId)) {
+    throw new Error("غير مصرح: لا يمكنك الوصول إلى بيانات مؤسسة أخرى.");
+  }
+  return { isPlatform, institutionId };
+}
+
+async function requireScheduleAdminScope(context: { userId: string; claims: { roles: string[]; institution_id: string | null } }, requestedInstitutionId?: string) {
+  const scope = await resolveCallerTenantScope(context, requestedInstitutionId);
+  const allowed = scope.isPlatform || context.claims.roles.includes("institution_admin");
+  if (!allowed) {
+    throw new Error("غير مسموح: إدارة الجداول والقاعات مخصصة لمدير المؤسسة.");
+  }
+  return scope;
+}
+
+async function assertEntityInstitution(
+  db: any,
+  table: string,
+  id: string | null | undefined,
+  institutionId: string,
+) {
+  if (!id) return;
+  const { data } = await db
+    .from(table)
+    .select("institution_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!data || data.institution_id !== institutionId) {
+    throw new Error("المورد المرجعي المحدد لا ينتمي إلى مؤسستك.");
+  }
+}
+
 export const getInstitutionSchedules = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z.object({ institutionId: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { institutionId } = await resolveCallerTenantScope(context, data.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const [schedulesRes, roomsRes] = await Promise.all([
       db
         .from("schedules")
         .select("*, classes(name), subjects(name), rooms(name)")
-        .eq("institution_id", data.institutionId)
+        .eq("institution_id", institutionId)
         .order("day_of_week")
         .order("start_time"),
       db
         .from("rooms")
         .select("*")
-        .eq("institution_id", data.institutionId)
+        .eq("institution_id", institutionId)
         .order("name"),
     ]);
     return {
@@ -260,11 +296,20 @@ export const saveInstitutionSchedule = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { institutionId } = await requireScheduleAdminScope(context, data.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+
+    await Promise.all([
+      assertEntityInstitution(db, "classes", data.classId, institutionId),
+      assertEntityInstitution(db, "subjects", data.subjectId, institutionId),
+      assertEntityInstitution(db, "profiles", data.teacherId, institutionId),
+      assertEntityInstitution(db, "rooms", data.roomId, institutionId),
+    ]);
+
     const payload = {
-      institution_id: data.institutionId,
+      institution_id: institutionId,
       class_id: data.classId,
       subject_id: data.subjectId || null,
       teacher_id: data.teacherId || null,
@@ -276,7 +321,11 @@ export const saveInstitutionSchedule = createServerFn({ method: "POST" })
       archived: data.archived ?? false,
     };
     if (data.id) {
-      const { error } = await db.from("schedules").update(payload).eq("id", data.id);
+      const { data: existing } = await db.from("schedules").select("institution_id").eq("id", data.id).maybeSingle();
+      if (!existing || existing.institution_id !== institutionId) {
+        throw new Error("غير مصرح: الجدول لا ينتمي إلى مؤسستك.");
+      }
+      const { error } = await db.from("schedules").update(payload).eq("id", data.id).eq("institution_id", institutionId);
       if (error) throw new Error(error.message);
     } else {
       const { error } = await db.from("schedules").insert(payload);
@@ -306,12 +355,29 @@ export const copyInstitutionSchedules = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { institutionId } = await requireScheduleAdminScope(context, data.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+
+    const uniqueChecks: Promise<void>[] = [];
+    for (const id of new Set(data.items.map((i) => i.classId))) {
+      uniqueChecks.push(assertEntityInstitution(db, "classes", id, institutionId));
+    }
+    for (const id of new Set(data.items.map((i) => i.subjectId).filter(Boolean))) {
+      uniqueChecks.push(assertEntityInstitution(db, "subjects", id, institutionId));
+    }
+    for (const id of new Set(data.items.map((i) => i.teacherId).filter(Boolean))) {
+      uniqueChecks.push(assertEntityInstitution(db, "profiles", id, institutionId));
+    }
+    for (const id of new Set(data.items.map((i) => i.roomId).filter(Boolean))) {
+      uniqueChecks.push(assertEntityInstitution(db, "rooms", id, institutionId));
+    }
+    await Promise.all(uniqueChecks);
+
     const { error } = await db.from("schedules").insert(
       data.items.map((r) => ({
-        institution_id: data.institutionId,
+        institution_id: institutionId,
         class_id: r.classId,
         subject_id: r.subjectId ?? null,
         teacher_id: r.teacherId ?? null,
@@ -332,9 +398,14 @@ export const setScheduleArchived = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ id: z.string().uuid(), archived: z.boolean() }).parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { isPlatform, institutionId } = await requireScheduleAdminScope(context);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+    const { data: existing } = await db.from("schedules").select("institution_id").eq("id", data.id).maybeSingle();
+    if (!existing || (!isPlatform && existing.institution_id !== institutionId)) {
+      throw new Error("غير مصرح: الجدول لا ينتمي إلى مؤسستك.");
+    }
     const { error } = await db.from("schedules").update({ archived: data.archived }).eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true as const };
@@ -343,9 +414,14 @@ export const setScheduleArchived = createServerFn({ method: "POST" })
 export const deleteScheduleRow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { isPlatform, institutionId } = await requireScheduleAdminScope(context);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+    const { data: existing } = await db.from("schedules").select("institution_id").eq("id", data.id).maybeSingle();
+    if (!existing || (!isPlatform && existing.institution_id !== institutionId)) {
+      throw new Error("غير مصرح: الجدول لا ينتمي إلى مؤسستك.");
+    }
     const { error } = await db.from("schedules").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true as const };
@@ -363,16 +439,21 @@ export const saveInstitutionRoom = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { institutionId } = await requireScheduleAdminScope(context, data.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const payload = {
-      institution_id: data.institutionId,
+      institution_id: institutionId,
       name: data.name,
       capacity: data.capacity ?? null,
     };
     if (data.id) {
-      const { error } = await db.from("rooms").update(payload).eq("id", data.id);
+      const { data: existing } = await db.from("rooms").select("institution_id").eq("id", data.id).maybeSingle();
+      if (!existing || existing.institution_id !== institutionId) {
+        throw new Error("غير مصرح: القاعة لا تنتمي إلى مؤسستك.");
+      }
+      const { error } = await db.from("rooms").update(payload).eq("id", data.id).eq("institution_id", institutionId);
       if (error) throw new Error(error.message);
     } else {
       const { error } = await db.from("rooms").insert(payload);
@@ -384,9 +465,14 @@ export const saveInstitutionRoom = createServerFn({ method: "POST" })
 export const deleteInstitutionRoom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { isPlatform, institutionId } = await requireScheduleAdminScope(context);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+    const { data: existing } = await db.from("rooms").select("institution_id").eq("id", data.id).maybeSingle();
+    if (!existing || (!isPlatform && existing.institution_id !== institutionId)) {
+      throw new Error("غير مصرح: القاعة لا تنتمي إلى مؤسستك.");
+    }
     const { error } = await db.from("rooms").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true as const };
@@ -398,10 +484,11 @@ export const sendScheduleAnnouncement = createServerFn({ method: "POST" })
     z.object({ institutionId: z.string().uuid(), message: z.string() }).parse(input),
   )
   .handler(async ({ data, context }) => {
+    const { institutionId } = await requireScheduleAdminScope(context, data.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     await db.from("announcements").insert({
-      institution_id: data.institutionId,
+      institution_id: institutionId,
       author_id: context.userId,
       title: "📢 تعديل على الجدول الدراسي",
       body: data.message,
@@ -425,19 +512,23 @@ export const createLesson = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
+    const allowedRoles = ["teacher", "institution_admin", "platform_admin"];
+    if (!context.claims.roles.some((r) => allowedRoles.includes(r))) {
+      throw new Error("غير مسموح: إنشاء الدروس مخصص للأساتذة وإدارة المؤسسة فقط.");
+    }
+
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
 
-    const { data: role } = await context.supabase
-      .from("user_roles")
-      .select("institution_id, role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-
-    const institutionId = role?.institution_id ?? context.claims.institution_id;
+    const institutionId = context.claims.institution_id;
     if (!institutionId) {
       throw new Error("المستخدم غير مرتبط بأي مؤسسة.");
     }
+
+    await Promise.all([
+      assertEntityInstitution(db, "classes", data.classId, institutionId),
+      assertEntityInstitution(db, "subjects", data.subjectId, institutionId),
+    ]);
 
     const { data: lesson, error } = await db
       .from("lessons")
@@ -481,19 +572,23 @@ export const createTeacherExam = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
+    const allowedRoles = ["teacher", "institution_admin", "platform_admin"];
+    if (!context.claims.roles.some((r) => allowedRoles.includes(r))) {
+      throw new Error("غير مسموح: إنشاء الاختبارات مخصص للأساتذة وإدارة المؤسسة فقط.");
+    }
+
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
 
-    const { data: role } = await context.supabase
-      .from("user_roles")
-      .select("institution_id, role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-
-    const institutionId = role?.institution_id ?? context.claims.institution_id;
+    const institutionId = context.claims.institution_id;
     if (!institutionId) {
       throw new Error("المستخدم غير مرتبط بأي مؤسسة.");
     }
+
+    await Promise.all([
+      assertEntityInstitution(db, "classes", data.classId, institutionId),
+      assertEntityInstitution(db, "subjects", data.subjectId, institutionId),
+    ]);
 
     const { data: exam, error } = await db
       .from("exams")
@@ -522,7 +617,7 @@ export const createTeacherExam = createServerFn({ method: "POST" })
           institution_id: institutionId,
           exam_id: exam.id,
           text: q.text,
-          type: "mcq",
+          type: "single_choice",
           points: 1,
           order_index: i,
         })
@@ -559,9 +654,12 @@ export const getStudentDashboardData = createServerFn({ method: "POST" })
       .maybeSingle();
 
     const institutionId = roleRow?.institution_id ?? context.claims.institution_id;
+    if (!institutionId) {
+      return { enrollments: [], subjects: [], lessons: [], announcements: [] };
+    }
 
     const [enrollmentsRes, subjectsRes, lessonsRes, announcementsRes] = await Promise.all([
-      db.from("enrollments").select("class_id").eq("student_id", userId),
+      db.from("enrollments").select("class_id").eq("student_id", userId).eq("institution_id", institutionId),
       db.from("subjects").select("*, classes(name)").eq("institution_id", institutionId),
       db.from("lessons").select("*, subjects(name)").eq("institution_id", institutionId).eq("published", true).order("created_at", { ascending: false }),
       db.from("announcements").select("*").eq("institution_id", institutionId).order("created_at", { ascending: false }),
@@ -592,9 +690,25 @@ export const getTeacherDashboardData = createServerFn({ method: "POST" })
     const exams = examsRes.data ?? [];
     const examIds = exams.map((e: any) => e.id);
     let attempts: any[] = [];
+    const studentNames: Record<string, string> = {};
     if (examIds.length > 0) {
       const attemptsRes = await db.from("attempts").select("*, exams(title)").in("exam_id", examIds);
       attempts = attemptsRes.data ?? [];
+      const studentIds = Array.from(
+        new Set(attempts.map((a: any) => a.student_id).filter((id: unknown): id is string => typeof id === "string" && id.length > 0)),
+      );
+      if (studentIds.length > 0) {
+        const { data: studentProfiles } = await db
+          .from("profiles")
+          .select("id, first_name, last_name")
+          .in("id", studentIds);
+        for (const p of (studentProfiles ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>) {
+          const fullName = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
+          if (fullName) {
+            studentNames[p.id] = fullName;
+          }
+        }
+      }
     }
 
     return {
@@ -602,6 +716,7 @@ export const getTeacherDashboardData = createServerFn({ method: "POST" })
       lessons: lessonsRes.data ?? [],
       exams,
       attempts,
+      studentNames,
       announcements: announcementsRes.data ?? [],
     };
   });
@@ -617,9 +732,21 @@ export const getScheduleRows = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+
+    const isPlatform = context.claims.roles.includes("platform_admin");
+    const scopedInstitutionId = isPlatform
+      ? data.institutionId
+      : context.claims.institution_id;
+
+    if (!isPlatform && !scopedInstitutionId) {
+      return [];
+    }
+    if (!isPlatform && data.institutionId && data.institutionId !== scopedInstitutionId) {
+      throw new Error("غير مصرح: لا يمكنك عرض جداول مؤسسة أخرى.");
+    }
 
     let q = db
       .from("schedules")
@@ -628,7 +755,7 @@ export const getScheduleRows = createServerFn({ method: "POST" })
       .order("day_of_week")
       .order("start_time");
 
-    if (data.institutionId) q = q.eq("institution_id", data.institutionId);
+    if (scopedInstitutionId) q = q.eq("institution_id", scopedInstitutionId);
     if (data.teacherId) q = q.eq("teacher_id", data.teacherId);
     if (data.classIds && data.classIds.length > 0) q = q.in("class_id", data.classIds);
 
@@ -668,9 +795,12 @@ export const addPersonalScheduleEntry = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
+    const institutionId = context.claims.roles.includes("platform_admin")
+      ? (data.institutionId ?? context.claims.institution_id ?? null)
+      : context.claims.institution_id;
     const { error } = await db.from("personal_schedule_entries").insert({
       owner_id: context.userId,
-      institution_id: data.institutionId ?? null,
+      institution_id: institutionId,
       day_of_week: data.dayOfWeek,
       start_time: data.startTime,
       end_time: data.endTime || null,

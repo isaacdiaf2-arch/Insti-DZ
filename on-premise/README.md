@@ -1,7 +1,7 @@
-# Study DZ — On-Premise Deployment
+# Insti DZ — On-Premise Deployment
 
 ## Overview
-This directory contains everything needed to deploy Study DZ on a local server inside the institution's network.
+This directory contains everything needed to deploy Insti DZ on a local server inside the institution's network using Docker Compose and local PostgreSQL 16.
 
 ## Requirements
 - Docker 20+ and Docker Compose
@@ -19,31 +19,30 @@ This directory contains everything needed to deploy Study DZ on a local server i
 
 2. **Place your license file:**
    ```bash
-   # Download license.json from the Study DZ cloud dashboard
+   # Download license.json from the Insti DZ cloud dashboard
    # (Download Center page) and place it here:
-   cp /path/to/license.json ./license.json
+   cp /path/to/insti-dz-license.json ./license.json
    ```
 
 3. **Create the app secrets file:**
    ```bash
    cat > secrets/app.env <<EOF
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_ANON_KEY=your-anon-key
-   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   AUTH_SECRET=$(openssl rand -hex 32)
+   STORAGE_SIGNING_SECRET=$(openssl rand -hex 32)
+   LOCAL_STORAGE_DIR=/app/data/storage
    EOF
    chmod 600 secrets/app.env
    ```
-   For a fully self-hosted deployment (no Supabase), run your own PostgREST and
-   leave these values pointing at your local server.
+   `DATABASE_URL` is automatically injected from `secrets/db_password.txt` by `docker-compose.yml`.
 
 4. **Start the services:**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
-4. **Run database migrations:**
+5. **Run database migrations:**
    ```bash
-   docker-compose exec db psql -U studydz -d studydz -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());"
+   docker compose exec db psql -U studydz -d studydz -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());"
    ./scripts/run-migrations.sh
    ```
 

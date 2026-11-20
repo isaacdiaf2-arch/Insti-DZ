@@ -10,13 +10,8 @@ async function admin() {
 }
 
 async function assertPlatformAdmin(context: { supabase: any; userId: string }) {
-  const { data } = await context.supabase
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", context.userId)
-    .eq("role", "platform_admin")
-    .maybeSingle();
-  if (!data) throw new Error("غير مسموح: مدير المنصة فقط.");
+  const { requirePlatformAdmin } = await import("./contracts.server");
+  await requirePlatformAdmin(context);
 }
 
 export async function writeAudit(
@@ -146,7 +141,9 @@ export const issueInvoice = createServerFn({ method: "POST" })
       .eq("id", data.paymentId)
       .single();
     if (error) throw new Error(error.message);
-    if (payment.status !== "accepted") throw new Error("لا يمكن إصدار فاتورة لدفعة غير مقبولة.");
+    if (payment.status !== "verified" && payment.status !== "accepted") {
+      throw new Error("لا يمكن إصدار فاتورة لدفعة غير مقبولة.");
+    }
 
     const { data: existing } = await db
       .from("invoices")
@@ -177,12 +174,51 @@ export const issueInvoice = createServerFn({ method: "POST" })
       institutionId: payment.institution_id,
       action: "invoice.issued",
       resource: "invoices",
-      resourceId: number,
-      metadata: { amount: payment.amount },
+      resourceId: payment.id,
+      metadata: { amount: payment.amount, invoice_number: number },
     });
 
     return { ok: true, number };
   });
+
+export function resolveChangeRequestScope(
+  claims: { roles: string[]; institution_id: string | null },
+  target: "profile" | "institution" | "institution_settings",
+  requestedInstitutionId?: string | null,
+): string | null {
+  const isPlatform = claims.roles.includes("platform_admin");
+  if (target === "profile") {
+    if (
+      !isPlatform &&
+      requestedInstitutionId &&
+      claims.institution_id &&
+      requestedInstitutionId !== claims.institution_id
+    ) {
+      throw new Error("غير مصرح: لا يمكنك إسناد طلب تعديل إلى مؤسسة أخرى.");
+    }
+    return isPlatform ? (requestedInstitutionId ?? claims.institution_id ?? null) : (claims.institution_id ?? null);
+  }
+
+  const isInstAdmin = claims.roles.includes("institution_admin");
+  if (!isPlatform && !isInstAdmin) {
+    throw new Error("غير مسموح: طلب تعديل بيانات المؤسسة مخصص لمدير المؤسسة فقط.");
+  }
+
+  if (isPlatform) {
+    if (!requestedInstitutionId && !claims.institution_id) {
+      throw new Error("يرجى تحديد معرّف المؤسسة.");
+    }
+    return requestedInstitutionId ?? claims.institution_id ?? null;
+  }
+
+  if (!claims.institution_id) {
+    throw new Error("المستخدم غير مرتبط بأي مؤسسة.");
+  }
+  if (requestedInstitutionId && requestedInstitutionId !== claims.institution_id) {
+    throw new Error("غير مصرح: لا يمكنك تقديم طلب تعديل لمؤسسة أخرى.");
+  }
+  return claims.institution_id;
+}
 
 /** طلب تعديل بيانات حساسة (يُراجَع من مدير المنصة) */
 export const submitChangeRequest = createServerFn({ method: "POST" })
@@ -198,16 +234,25 @@ export const submitChangeRequest = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const db = await admin();
+    const scopedInstitutionId = resolveChangeRequestScope(
+      context.claims,
+      data.target,
+      data.institutionId ?? null,
+    );
 
     let oldValues: Record<string, unknown> = {};
     if (data.target === "profile") {
-      const { data: p } = await db.from("profiles").select("*").eq("id", context.userId).maybeSingle();
+      const { data: p } = await db
+        .from("profiles")
+        .select("id, email, first_name, last_name, phone, avatar_url, institution_id")
+        .eq("id", context.userId)
+        .maybeSingle();
       oldValues = (p ?? {}) as Record<string, unknown>;
-    } else if (data.institutionId) {
+    } else if (scopedInstitutionId) {
       const { data: i } = await db
         .from("institutions")
         .select("*")
-        .eq("id", data.institutionId)
+        .eq("id", scopedInstitutionId)
         .maybeSingle();
       oldValues = (i ?? {}) as Record<string, unknown>;
     }
@@ -217,7 +262,7 @@ export const submitChangeRequest = createServerFn({ method: "POST" })
 
     const { error } = await db.from("change_requests").insert({
       requester_id: context.userId,
-      institution_id: data.institutionId ?? null,
+      institution_id: scopedInstitutionId,
       target: data.target,
       old_values: filteredOld as never,
       new_values: data.newValues as never,
@@ -227,7 +272,7 @@ export const submitChangeRequest = createServerFn({ method: "POST" })
 
     await writeAudit(db, {
       actorId: context.userId,
-      institutionId: data.institutionId ?? null,
+      institutionId: scopedInstitutionId,
       action: "change_request.created",
       resource: "change_requests",
       metadata: { target: data.target },
@@ -349,7 +394,7 @@ export const listChangeRequests = createServerFn({ method: "POST" })
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const { data, error } = await db
-      .from("institution_change_requests")
+      .from("change_requests")
       .select("*, institutions(name)")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -384,8 +429,8 @@ export const listInvoicesData = createServerFn({ method: "POST" })
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     const [invoicesRes, instRes] = await Promise.all([
-      db.from("invoices").select("*, institutions(name)").order("created_at", { ascending: false }),
-      db.from("institutions").select("id, name").order("name"),
+      db.from("invoices").select("*, institutions(name)").order("issued_at", { ascending: false }),
+      db.from("institutions").select("id, name, status").order("name"),
     ]);
     return {
       invoices: invoicesRes.data ?? [],
@@ -393,19 +438,38 @@ export const listInvoicesData = createServerFn({ method: "POST" })
     };
   });
 
+export function resolveInvoiceListScope(
+  claims: { roles: string[]; institution_id: string | null },
+  requestedInstitutionId?: string,
+): { isPlatform: boolean; institutionId: string | null } {
+  const isPlatform = claims.roles.includes("platform_admin");
+  if (isPlatform) {
+    return { isPlatform: true, institutionId: requestedInstitutionId ?? null };
+  }
+  const isInstAdmin = claims.roles.includes("institution_admin");
+  if (!isInstAdmin || !claims.institution_id) {
+    throw new Error("غير مسموح: عرض الفواتير مخصص لإدارة المؤسسة أو المنصة فقط.");
+  }
+  if (requestedInstitutionId && requestedInstitutionId !== claims.institution_id) {
+    throw new Error("غير مصرح: لا يمكنك عرض فواتير مؤسسة أخرى.");
+  }
+  return { isPlatform: false, institutionId: claims.institution_id };
+}
+
 export const listInvoices = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z.object({ institutionId: z.string().uuid().optional() }).optional().parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const scope = resolveInvoiceListScope(context.claims, data?.institutionId);
     const { getServiceDb } = await import("@/server/db/adapter");
     const db = await getServiceDb();
     let q = db
       .from("invoices")
       .select("*, institutions(name, wilaya, commune, email)")
       .order("issued_at", { ascending: false });
-    if (data?.institutionId) q = q.eq("institution_id", data.institutionId);
+    if (scope.institutionId) q = q.eq("institution_id", scope.institutionId);
     const res = await q;
     return res.data ?? [];
   });
@@ -419,7 +483,7 @@ export const listIssuablePayments = createServerFn({ method: "POST" })
     const { data, error } = await db
       .from("payments")
       .select("id, amount, paid_at, institution_id, institutions(name)")
-      .eq("status", "accepted")
+      .eq("status", "verified")
       .order("paid_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data ?? [];

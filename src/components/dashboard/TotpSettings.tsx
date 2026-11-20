@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ShieldCheck, ShieldOff, Loader2, KeyRound, AlertTriangle } from "lucide-react";
+import { ShieldCheck, ShieldOff, Loader2, KeyRound, AlertTriangle, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,19 +100,44 @@ export function TotpSettings() {
         {step === "enrolling" && (
           <div className="mt-4 space-y-4">
             <div className="rounded-lg border border-border p-4">
-              <p className="text-sm font-semibold">الخطوة 1: امسح رمز QR</p>
+              <p className="text-sm font-semibold">الخطوة 1: إعداد تطبيق المصادقة محليًا</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                استخدم تطبيق المصادقة على هاتفك لمسح رمز QR التالي أو أدخل المفتاح يدويًا.
+                أضف المفتاح السري التالي يدويًا في تطبيق المصادقة (Google Authenticator / FreeOTP) دون إرسال المفتاح لأي طرف ثالث.
               </p>
-              <div className="mt-3 flex flex-col items-center gap-3">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(uri)}`}
-                  alt="QR"
-                  className="h-40 w-40"
-                />
-                <div className="w-full">
-                  <Label className="text-xs">المفتاح السري</Label>
-                  <Input readOnly value={secret} dir="ltr" className="mt-1 font-mono text-xs" />
+              <div className="mt-3 flex flex-col gap-3">
+                <div className="w-full space-y-1">
+                  <Label className="text-xs">المفتاح السري (Base32)</Label>
+                  <div className="flex gap-2">
+                    <Input readOnly value={secret} dir="ltr" className="font-mono text-xs" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(secret);
+                        toast.success("تم نسخ المفتاح السري.");
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="w-full space-y-1">
+                  <Label className="text-xs">رابط التهيئة السريع (otpauth URI)</Label>
+                  <div className="flex gap-2">
+                    <Input readOnly value={uri} dir="ltr" className="font-mono text-xs" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(uri);
+                        toast.success("تم نسخ رابط الإعداد.");
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

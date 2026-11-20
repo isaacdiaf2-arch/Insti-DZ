@@ -67,6 +67,14 @@ export const submitPaymentProof = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+export function mapPaymentDecisionToStatus(
+  decision: "verified" | "accepted" | "rejected" | "needs_modification",
+): "pending" | "verified" | "rejected" {
+  if (decision === "verified" || decision === "accepted") return "verified";
+  if (decision === "rejected") return "rejected";
+  return "pending";
+}
+
 /**
  * مراجعة الدفع من طرف مدير المنصة — قبول / رفض / طلب تعديل.
  * لا يوجد تفعيل تلقائي بمجرد رفع الوصل.
@@ -77,7 +85,7 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
     z
       .object({
         paymentId: z.string().uuid(),
-        decision: z.enum(["accepted", "rejected", "needs_modification"]),
+        decision: z.enum(["verified", "accepted", "rejected", "needs_modification"]),
         rejectionReason: z.string().trim().max(500).optional().nullable(),
       })
       .parse(data),
@@ -85,13 +93,8 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data: isAdmin } = await context.supabase
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", context.userId)
-      .eq("role", "platform_admin")
-      .maybeSingle();
-    if (!isAdmin) throw new Error("غير مسموح: مدير المنصة فقط.");
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
 
     const { data: payment, error: fetchErr } = await supabaseAdmin
       .from("payments")
@@ -104,7 +107,9 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
 
     const nowIso = new Date().toISOString();
 
-    if (data.decision === "accepted") {
+    const targetStatus = mapPaymentDecisionToStatus(data.decision);
+
+    if (targetStatus === "verified") {
       const expires = new Date();
       expires.setFullYear(expires.getFullYear() + 1);
       const expiresAt = expires.toISOString().slice(0, 10);
@@ -112,7 +117,7 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
       await supabaseAdmin
         .from("payments")
         .update({
-          status: "accepted",
+          status: targetStatus,
           reviewed_at: nowIso,
           expires_at: expiresAt,
           rejection_reason: null,
@@ -132,11 +137,10 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
         body: `تم قبول وصل الدفع وتفعيل اشتراك مؤسستك لمدة سنة، ينتهي في ${expiresAt}.`,
       });
     } else {
-      const status = data.decision === "rejected" ? "rejected" : "pending";
       await supabaseAdmin
         .from("payments")
         .update({
-          status: status as never,
+          status: targetStatus,
           reviewed_at: nowIso,
           rejection_reason: data.rejectionReason ?? null,
         })
@@ -169,7 +173,6 @@ export const reviewPaymentWithAudit = createServerFn({ method: "POST" })
   });
 
 async function notifyInstitutionAdmins(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   admin: any,
   institutionId: string,
   payload: Record<string, unknown>,

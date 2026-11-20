@@ -8,13 +8,8 @@ export const LICENSE_AMOUNT = 9000;
 export const SERVER_VERSION = "1.3.0";
 
 async function requirePlatformAdmin(context: { supabase: any; userId: string }) {
-  const { data } = await context.supabase
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", context.userId)
-    .eq("role", "platform_admin")
-    .maybeSingle();
-  if (!data) throw new Error("غير مسموح: مدير المنصة فقط.");
+  const { requirePlatformAdmin: guard } = await import("./contracts.server");
+  await guard(context);
 }
 
 /** Cryptographically secure license key (no predictable Math.random). */
@@ -55,9 +50,20 @@ export const listInstitutionsBrief = createServerFn({ method: "POST" })
 export const getMyLicense = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const { data: role } = await context.supabase
+      .from("user_roles")
+      .select("institution_id")
+      .eq("user_id", context.userId)
+      .eq("role", "institution_admin")
+      .maybeSingle();
+
+    const institutionId = role?.institution_id ?? context.claims.institution_id;
+    if (!institutionId) return null;
+
     const { data } = await context.supabase
       .from("licenses")
       .select("*")
+      .eq("institution_id", institutionId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -248,11 +254,11 @@ export const getInstallationInfo = createServerFn({ method: "POST" })
       release: {
         version: SERVER_VERSION,
         channel: "stable" as const,
-        platforms: ["Windows Server 2019+ / Windows 10+", "Linux (مخطط له)"],
+        platforms: ["Docker / Linux Server (Docker Compose)", "Windows Server 2019+ (عبر Docker Desktop)"],
         requirements: [
           "معالج 2 نواة وذاكرة 4 غيغابايت على الأقل",
           "مساحة تخزين 10 غيغابايت",
-          "PostgreSQL 15 أو أحدث (محلي)",
+          "PostgreSQL 16 (مضمّن عبر Docker Compose)",
           "شبكة داخلية للمؤسسة",
         ],
       },

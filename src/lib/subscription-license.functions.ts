@@ -12,13 +12,8 @@ export const runSubscriptionExpiry = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data: isAdmin } = await context.supabase
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", context.userId)
-      .eq("role", "platform_admin")
-      .maybeSingle();
-    if (!isAdmin) throw new Error("غير مسموح: مدير المنصة فقط.");
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
 
     const { data, error } = await supabaseAdmin.rpc("expire_subscriptions");
     if (error) throw new Error(error.message);

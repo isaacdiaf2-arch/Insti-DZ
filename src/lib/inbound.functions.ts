@@ -7,6 +7,30 @@ import {
   type SupportMessageInput,
 } from "@/lib/inbound.shared";
 
+/**
+ * Counts recent inbound submissions strictly via `count_recent_trial_requests` /
+ * `count_recent_support_messages` RPC functions. Never falls back to direct table reads
+ * (even on 42883) and never fails silently to `0`.
+ */
+export async function countRecentInboundSafe(
+  db: any,
+  rpcName: "count_recent_trial_requests" | "count_recent_support_messages",
+  email: string,
+  since: string,
+): Promise<number> {
+  const { data: rpcCount, error: rpcError } = await db.rpc(rpcName, {
+    _email: email.trim().toLowerCase(),
+    _since: since,
+  });
+
+  if (!rpcError && typeof rpcCount === "number" && Number.isFinite(rpcCount)) {
+    return rpcCount;
+  }
+
+  console.error(`[Inbound] ${rpcName} RPC failed:`, rpcError?.message ?? "invalid response");
+  throw new Error("تعذر التحقق من حد الطلبات مؤقتاً، يرجى المحاولة لاحقاً.");
+}
+
 /** طلب تجربة مجانية — نقطة عمومية */
 export const submitTrialRequest = createServerFn({ method: "POST" })
   .inputValidator((data: TrialRequestInput) => trialRequestSchema.parse(data))
@@ -15,12 +39,13 @@ export const submitTrialRequest = createServerFn({ method: "POST" })
     const { notifyInbound } = await import("@/lib/inbound.server");
 
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count } = await supabaseAdmin
-      .from("trial_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("email", data.email)
-      .gte("created_at", since);
-    if ((count ?? 0) >= 3) {
+    const count = await countRecentInboundSafe(
+      supabaseAdmin,
+      "count_recent_trial_requests",
+      data.email,
+      since,
+    );
+    if (count >= 3) {
       return { ok: false as const, message: "تم إرسال عدة طلبات مؤخرًا، حاول لاحقًا." };
     }
 
@@ -53,12 +78,13 @@ export const submitSupportMessage = createServerFn({ method: "POST" })
     const { notifyInbound } = await import("@/lib/inbound.server");
 
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count } = await supabaseAdmin
-      .from("support_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("email", data.email)
-      .gte("created_at", since);
-    if ((count ?? 0) >= 5) {
+    const count = await countRecentInboundSafe(
+      supabaseAdmin,
+      "count_recent_support_messages",
+      data.email,
+      since,
+    );
+    if (count >= 5) {
       return { ok: false as const, message: "تم إرسال عدة رسائل مؤخرًا، حاول لاحقًا." };
     }
 
@@ -97,11 +123,8 @@ export const decideTrialRequest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { id: string; approve: boolean }) => data)
   .handler(async ({ data, context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", {
-      _user_id: context.userId,
-      _role: "platform_admin",
-    });
-    if (!isAdmin) throw new Error("غير مصرح");
+    const { requirePlatformAdmin } = await import("./contracts.server");
+    await requirePlatformAdmin(context);
 
     const { TRIAL_HOURS } = await import("@/lib/inbound.shared");
     const now = new Date();

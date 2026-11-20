@@ -30,6 +30,31 @@ const nav = [
   { key: "announcements", label: "الإعلانات", icon: Megaphone },
 ];
 
+interface StudentEnrollmentRow {
+  class_id: string;
+}
+
+interface StudentSubjectRow {
+  id: string;
+  name: string;
+  classes?: { name?: string | null } | null;
+}
+
+interface StudentLessonRow {
+  id: string;
+  title: string;
+  content?: string | null;
+  pdf_url?: string | null;
+  video_url?: string | null;
+  subjects?: { name?: string | null } | null;
+}
+
+interface StudentAnnouncementRow {
+  id: string;
+  title: string;
+  body?: string | null;
+}
+
 function StudentDashboard() {
   const [tab, setTab] = useState("home");
   const [activeExam, setActiveExam] = useState<string | null>(null);
@@ -45,18 +70,18 @@ function StudentDashboard() {
     queryFn: async () => await studentDataFn(),
   });
 
-  const enrollments = { data: studentData.data?.enrollments ?? [] };
-  const classIds = (enrollments.data ?? []).map((e: any) => e.class_id);
+  const enrollments = { data: (studentData.data?.enrollments ?? []) as StudentEnrollmentRow[] };
+  const classIds = enrollments.data.map((e) => e.class_id);
   const schedule = useScheduleView({
     institutionId,
     classIds,
     cacheKey: `student_${userId ?? "anon"}`,
   });
 
-  const subjects = { data: studentData.data?.subjects ?? [] };
-  const lessons = { data: studentData.data?.lessons ?? [] };
+  const subjects = { data: (studentData.data?.subjects ?? []) as StudentSubjectRow[] };
+  const lessons = { data: (studentData.data?.lessons ?? []) as StudentLessonRow[] };
   const quizzes = useStudentQuizzes();
-  const announcements = { data: studentData.data?.announcements ?? [] };
+  const announcements = { data: (studentData.data?.announcements ?? []) as StudentAnnouncementRow[] };
 
 
   if (activeExam) {

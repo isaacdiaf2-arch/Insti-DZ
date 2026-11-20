@@ -35,7 +35,7 @@ export function institutionService(db: DbClient) {
 
     async updateInstitutionSettings(
       institutionId: string,
-      updates: { name?: string; phone?: string; address?: string; logoUrl?: string; coverUrl?: string },
+      updates: { name?: string; phone?: string; address?: string; logoUrl?: string; coverUrl?: string; primaryColor?: string },
       caller: { role: string; institutionId?: string | null }
     ) {
       if (caller.role !== "platform_admin" && (caller.role !== "institution_admin" || caller.institutionId !== institutionId)) {
@@ -48,6 +48,7 @@ export function institutionService(db: DbClient) {
       if (updates.address) payload.address = updates.address.trim();
       if (updates.logoUrl) payload.logo_url = updates.logoUrl.trim();
       if (updates.coverUrl) payload.cover_url = updates.coverUrl.trim();
+      if (updates.primaryColor) payload.primary_color = updates.primaryColor.trim();
 
       return repo.update(institutionId, payload);
     },

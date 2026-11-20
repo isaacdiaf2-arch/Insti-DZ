@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAccount, roleHome } from "@/lib/account";
+import { useAccount, roleHome, type AppRole } from "@/lib/account";
 import { bootstrapRole } from "@/lib/platform.functions";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -17,8 +17,8 @@ function DashboardRedirect() {
 
   useEffect(() => {
     if (isLoading) return;
-    if (data?.role) {
-      navigate({ to: roleHome[data.role], replace: true });
+    if (data?.role && data.role in roleHome) {
+      navigate({ to: roleHome[data.role as AppRole], replace: true });
       return;
     }
     let cancelled = false;
